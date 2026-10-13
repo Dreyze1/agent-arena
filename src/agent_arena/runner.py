@@ -7,13 +7,15 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import signal
 import subprocess
 import tempfile
 import time
 import tomllib
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,26 @@ class AgentOutcome:
     patch_file: str
     checks: list[dict[str, Any]]
     workspace: str | None
+
+
+@dataclass(frozen=True)
+class AgentProfile:
+    command: tuple[str, ...]
+    inherit_env: tuple[str, ...]
+
+
+def resolve_repository(path: Path) -> Path:
+    """Return the top-level path of a Git worktree."""
+    repository = path.expanduser().resolve()
+    if not repository.exists():
+        raise ArenaError(f"Repository path does not exist: {repository}")
+    return Path(_git(repository, "rev-parse", "--show-toplevel").stdout.strip()).resolve()
+
+
+def run_artifacts_directory(repository: Path) -> Path:
+    """Return the local, per-repository run history directory."""
+    repository_key = hashlib.sha256(str(repository.resolve()).encode("utf-8")).hexdigest()[:12]
+    return Path(tempfile.gettempdir()) / "agent-arena" / repository_key / "runs"
 
 
 def _git(repository: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -60,7 +82,7 @@ def _safe_name(value: str) -> str:
     return safe
 
 
-def _read_config(config_path: Path) -> tuple[dict[str, list[str]], list[list[str]]]:
+def _read_config(config_path: Path) -> tuple[dict[str, AgentProfile], list[list[str]]]:
     try:
         data = tomllib.loads(config_path.read_text(encoding="utf-8"))
     except FileNotFoundError as error:
@@ -77,7 +99,7 @@ def _read_config(config_path: Path) -> tuple[dict[str, list[str]], list[list[str
     if not isinstance(raw_agents, dict) or not raw_agents:
         raise ArenaError("Config must contain at least one [agents.NAME] command.")
 
-    agents: dict[str, list[str]] = {}
+    agents: dict[str, AgentProfile] = {}
     safe_names: set[str] = set()
     for name, profile in raw_agents.items():
         if not isinstance(profile, dict):
@@ -89,11 +111,17 @@ def _read_config(config_path: Path) -> tuple[dict[str, list[str]], list[list[str
             or not all(isinstance(part, str) and part for part in command)
         ):
             raise ArenaError(f"Agent {name!r} must define command as a non-empty string array.")
+        inherit_env = profile.get("inherit_env", [])
+        if not isinstance(inherit_env, list) or not all(
+            isinstance(variable, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", variable)
+            for variable in inherit_env
+        ):
+            raise ArenaError(f"Agent {name!r} inherit_env must be an array of variable names.")
         safe = _safe_name(name)
         if safe in safe_names:
             raise ArenaError("Agent names must remain unique after filename normalization.")
         safe_names.add(safe)
-        agents[name] = command
+        agents[name] = AgentProfile(tuple(command), tuple(inherit_env))
 
     raw_checks = data.get("checks", [])
     if not isinstance(raw_checks, list):
@@ -169,10 +197,117 @@ def _has_uncommitted_changes(repository: Path, allowed_untracked: Path | None) -
     return False
 
 
-def _as_text(value: str | bytes | None) -> str:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value or ""
+_BASE_ENVIRONMENT = {
+    "APPDATA",
+    "COMSPEC",
+    "CONDA_DEFAULT_ENV",
+    "CONDA_PREFIX",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LOCALAPPDATA",
+    "LOGNAME",
+    "PATHEXT",
+    "PATH",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "SHELL",
+    "SYSTEMROOT",
+    "TEMP",
+    "TERM",
+    "TMP",
+    "TMPDIR",
+    "USER",
+    "USERPROFILE",
+    "USERNAME",
+    "VIRTUAL_ENV",
+    "WINDIR",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+}
+
+
+def _child_environment(
+    extra_variables: tuple[str, ...],
+    arena_values: dict[str, str],
+) -> dict[str, str]:
+    current_keys = {key.upper(): key for key in os.environ}
+    allowed = _BASE_ENVIRONMENT | {variable.upper() for variable in extra_variables}
+    environment = {key: value for key, value in os.environ.items() if key.upper() in allowed}
+    missing = [name for name in extra_variables if name.upper() not in current_keys]
+    if missing:
+        raise ArenaError("Requested environment variable(s) are not set: " + ", ".join(missing))
+    for name in extra_variables:
+        current_name = current_keys[name.upper()]
+        environment[current_name] = os.environ[current_name]
+    environment.update(arena_values)
+    return environment
+
+
+def _secret_values(profile: AgentProfile, environment: dict[str, str]) -> tuple[str, ...]:
+    values = {name.upper(): value for name, value in environment.items()}
+    return tuple(values[name.upper()] for name in profile.inherit_env if values.get(name.upper()))
+
+
+def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _write_redacted_log(source: Any, destination: Path, secrets: tuple[str, ...]) -> None:
+    patterns = tuple(dict.fromkeys(secret.encode("utf-8") for secret in secrets if secret))
+    source.seek(0)
+    with destination.open("wb") as output:
+        if not patterns:
+            shutil.copyfileobj(source, output, length=64 * 1024)
+            return
+
+        overlap = max(map(len, patterns)) - 1
+        pending = b""
+        while True:
+            chunk = source.read(64 * 1024)
+            pending += chunk
+            for pattern in patterns:
+                pending = pending.replace(pattern, b"[REDACTED]")
+            safe_length = len(pending) if not chunk else max(0, len(pending) - overlap)
+            if safe_length:
+                output.write(pending[:safe_length])
+                pending = pending[safe_length:]
+            if not chunk:
+                break
 
 
 def _run_command(
@@ -181,43 +316,52 @@ def _run_command(
     cwd: Path,
     environment: dict[str, str],
     timeout_seconds: int,
-) -> tuple[int, bool, float, str, str]:
+    stdout_path: Path,
+    stderr_path: Path,
+    redact_values: tuple[str, ...] = (),
+) -> tuple[int, bool, float]:
     started = time.perf_counter()
     try:
-        result = subprocess.run(
-            command,
-            cwd=cwd,
-            env=environment,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_seconds,
-            check=False,
-        )
+        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+        with (
+            tempfile.TemporaryFile(mode="w+b", dir=stdout_path.parent) as stdout_raw,
+            tempfile.TemporaryFile(mode="w+b", dir=stderr_path.parent) as stderr_raw,
+        ):
+            try:
+                process_options: dict[str, Any] = {}
+                if os.name == "nt":
+                    process_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+                else:
+                    process_options["start_new_session"] = True
+                process = subprocess.Popen(
+                    command,
+                    cwd=cwd,
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_raw,
+                    stderr=stderr_raw,
+                    **process_options,
+                )
+            except OSError as error:
+                stderr_raw.write(f"Could not start {command[0]!r}: {error}\n".encode())
+                returncode, timed_out = 127, False
+            else:
+                try:
+                    returncode = process.wait(timeout=timeout_seconds)
+                    timed_out = False
+                except subprocess.TimeoutExpired:
+                    _terminate_process_tree(process)
+                    returncode, timed_out = 124, True
+            _write_redacted_log(stdout_raw, stdout_path, redact_values)
+            _write_redacted_log(stderr_raw, stderr_path, redact_values)
         return (
-            result.returncode,
-            False,
+            returncode,
+            timed_out,
             round(time.perf_counter() - started, 3),
-            result.stdout,
-            result.stderr,
         )
-    except subprocess.TimeoutExpired as error:
-        return (
-            124,
-            True,
-            round(time.perf_counter() - started, 3),
-            _as_text(error.stdout),
-            _as_text(error.stderr),
-        )
-    except FileNotFoundError as error:
-        return (
-            127,
-            False,
-            round(time.perf_counter() - started, 3),
-            "",
-            f"Could not start {command[0]!r}: {error}",
-        )
+    except OSError as error:
+        message = f"Could not write command logs under {stdout_path.parent}: {error}"
+        raise ArenaError(message) from error
 
 
 def _run_checks(
@@ -240,14 +384,16 @@ def _run_checks(
             worktree=worktree,
             base_sha=base_sha,
         )
-        returncode, timed_out, duration, stdout, stderr = _run_command(
+        stdout_path = agent_dir / f"check-{index}.stdout.log"
+        stderr_path = agent_dir / f"check-{index}.stderr.log"
+        returncode, timed_out, duration = _run_command(
             command,
             cwd=worktree,
             environment=environment,
             timeout_seconds=timeout_seconds,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
         )
-        (agent_dir / f"check-{index}.stdout.log").write_text(stdout, encoding="utf-8")
-        (agent_dir / f"check-{index}.stderr.log").write_text(stderr, encoding="utf-8")
         outcomes.append(
             {
                 "command": Path(command[0]).name,
@@ -264,7 +410,7 @@ def _run_checks(
 def _run_agent(
     *,
     name: str,
-    command_template: list[str],
+    profile: AgentProfile,
     checks: list[list[str]],
     task: str,
     repository: Path,
@@ -276,32 +422,34 @@ def _run_agent(
     keep_worktrees: bool,
 ) -> AgentOutcome:
     command = _expand_command(
-        command_template,
+        list(profile.command),
         task=task,
         repository=repository,
         worktree=worktree,
         base_sha=base_sha,
     )
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "ARENA_TASK": task,
-            "ARENA_REPOSITORY": str(repository),
-            "ARENA_WORKTREE": str(worktree),
-            "ARENA_BASE_SHA": base_sha,
-            "ARENA_RUN_ID": run_id,
-            "ARENA_AGENT": name,
-        }
-    )
+    arena_values = {
+        "ARENA_TASK": task,
+        "ARENA_REPOSITORY": str(repository),
+        "ARENA_WORKTREE": str(worktree),
+        "ARENA_BASE_SHA": base_sha,
+        "ARENA_RUN_ID": run_id,
+        "ARENA_AGENT": name,
+    }
+    environment = _child_environment(profile.inherit_env, arena_values)
+    check_environment = _child_environment((), arena_values)
 
-    returncode, timed_out, duration, stdout, stderr = _run_command(
+    stdout_path = agent_dir / "stdout.log"
+    stderr_path = agent_dir / "stderr.log"
+    returncode, timed_out, duration = _run_command(
         command,
         cwd=worktree,
         environment=environment,
         timeout_seconds=timeout_seconds,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        redact_values=_secret_values(profile, environment),
     )
-    (agent_dir / "stdout.log").write_text(stdout, encoding="utf-8")
-    (agent_dir / "stderr.log").write_text(stderr, encoding="utf-8")
 
     check_results = _run_checks(
         checks,
@@ -310,7 +458,7 @@ def _run_agent(
         worktree=worktree,
         base_sha=base_sha,
         timeout_seconds=timeout_seconds,
-        environment=environment,
+        environment=check_environment,
         agent_dir=agent_dir,
     )
 
@@ -353,11 +501,10 @@ def run_arena(
         raise ArenaError("Task text cannot be empty.")
     if timeout_seconds < 1:
         raise ArenaError("Timeout must be at least one second.")
+    if timeout_seconds > 86_400:
+        raise ArenaError("Timeout cannot exceed 86,400 seconds (24 hours).")
 
-    repository_input = repository_path.expanduser().resolve()
-    if not repository_input.exists():
-        raise ArenaError(f"Repository path does not exist: {repository_input}")
-    repository = Path(_git(repository_input, "rev-parse", "--show-toplevel").stdout.strip()).resolve()
+    repository = resolve_repository(repository_path)
 
     config = config_path.expanduser()
     if not config.is_absolute():
@@ -379,15 +526,25 @@ def run_arena(
         names = list(dict.fromkeys(selected_agents))
     else:
         names = list(agents)
+    if len(names) > 16:
+        raise ArenaError("A single run is limited to 16 agents.")
+    for name in names:
+        _child_environment(agents[name].inherit_env, {})
 
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    run_started_at = datetime.now(UTC)
+    run_id = run_started_at.strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     repo_key = hashlib.sha256(str(repository).encode("utf-8")).hexdigest()[:12]
     temp_root = Path(tempfile.gettempdir()) / "agent-arena" / repo_key
-    run_dir = temp_root / "runs" / run_id
-    run_dir.mkdir(parents=True, exist_ok=False)
-
+    run_dir = run_artifacts_directory(repository) / run_id
     workspace_root = temp_root / "worktrees" / run_id
-    workspace_root.mkdir(parents=True, exist_ok=False)
+    try:
+        temp_root.mkdir(parents=True, exist_ok=True)
+        if os.name != "nt":
+            temp_root.chmod(0o700)
+        run_dir.mkdir(parents=True, exist_ok=False)
+        workspace_root.mkdir(parents=True, exist_ok=False)
+    except OSError as error:
+        raise ArenaError(f"Could not create run storage in {temp_root}: {error}") from error
 
     worktrees: dict[str, Path] = {}
     try:
@@ -400,20 +557,25 @@ def run_arena(
         def invoke(name: str) -> AgentOutcome:
             safe = _safe_name(name)
             agent_dir = run_dir / "agents" / safe
-            agent_dir.mkdir(parents=True, exist_ok=False)
-            return _run_agent(
-                name=name,
-                command_template=agents[name],
-                checks=checks,
-                task=task,
-                repository=repository,
-                worktree=worktrees[name],
-                base_sha=base_sha,
-                timeout_seconds=timeout_seconds,
-                run_id=run_id,
-                agent_dir=agent_dir,
-                keep_worktrees=keep_worktrees,
-            )
+            try:
+                agent_dir.mkdir(parents=True, exist_ok=False)
+                return _run_agent(
+                    name=name,
+                    profile=agents[name],
+                    checks=checks,
+                    task=task,
+                    repository=repository,
+                    worktree=worktrees[name],
+                    base_sha=base_sha,
+                    timeout_seconds=timeout_seconds,
+                    run_id=run_id,
+                    agent_dir=agent_dir,
+                    keep_worktrees=keep_worktrees,
+                )
+            except OSError as error:
+                raise ArenaError(
+                    f"Could not store artifacts for agent {name!r}: {error}"
+                ) from error
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as executor:
             outcomes = list(executor.map(invoke, names))
@@ -441,7 +603,8 @@ def run_arena(
     manifest = {
         "schema_version": 1,
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": run_started_at.isoformat(),
+        "completed_at": datetime.now(UTC).isoformat(),
         "repository": str(repository),
         "base_sha": base_sha,
         "task": task,
@@ -449,8 +612,11 @@ def run_arena(
         "agent_count": len(outcomes),
         "agents": [asdict(outcome) for outcome in outcomes],
     }
-    (run_dir / "run.json").write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    try:
+        (run_dir / "run.json").write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as error:
+        raise ArenaError(f"Could not write run manifest in {run_dir}: {error}") from error
     return run_dir, base_sha, outcomes

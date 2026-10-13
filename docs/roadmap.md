@@ -18,7 +18,7 @@ This roadmap describes the first useful release. Priorities may change as people
 
 ## Milestone 2 — Better review
 
-- [ ] Add a static HTML report for side-by-side patches and check results.
+- [x] Add a static HTML report for side-by-side patches and check results.
 - [ ] Allow selecting a winning patch and exporting it as a branch.
 - [ ] Add repeatable benchmark suites with task fixtures.
 

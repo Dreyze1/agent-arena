@@ -11,7 +11,7 @@ Run several coding agents against one task from the same starting commit and mak
 3. **Provider adapters** — invoke installed agent CLIs with a consistent task contract and capture exit status and output.
 4. **Evaluator** — run configured checks against each result and record command, duration, and outcome.
 5. **Run artifacts** — preserve a manifest and patch per agent in the system temporary directory.
-6. **Review surface** — the first version prints a terminal summary; a static HTML report can follow.
+6. **Review surface** — print a terminal summary and generate an offline HTML report with side-by-side patches, checks, and logs.
 
 ## Run artifact shape
 
@@ -40,5 +40,7 @@ Git worktrees prevent agents from editing each other's files. They are not a sec
 
 - Keep provider integrations optional; users should not need one vendor's SDK.
 - Store configuration in readable TOML.
+- Launch commands without a shell and forward only a small default environment allowlist.
+- Require agent profiles to opt in to any additional environment variables by name.
 - Make runs reproducible from a recorded base commit and command configuration.
 - Keep artifacts portable and avoid storing credentials.

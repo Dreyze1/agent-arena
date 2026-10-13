@@ -1,5 +1,8 @@
 """Command-line entry point for Agent Arena."""
 
+import json
+import re
+import webbrowser
 from pathlib import Path
 
 import typer
@@ -7,7 +10,14 @@ from rich.console import Console
 from rich.table import Table
 
 from agent_arena import __version__
-from agent_arena.runner import ArenaError, AgentOutcome, run_arena
+from agent_arena.report import create_report
+from agent_arena.runner import (
+    AgentOutcome,
+    ArenaError,
+    resolve_repository,
+    run_arena,
+    run_artifacts_directory,
+)
 
 app = typer.Typer(
     name="arena",
@@ -27,9 +37,12 @@ version = 1
 # A worktree is not an operating-system security sandbox.
 [agents.codex]
 command = ["codex", "exec", "--full-auto", "{task}"]
+# Set variable names here only when this provider CLI needs an environment key:
+# inherit_env = ["OPENAI_API_KEY"]
 
 [agents.claude]
 command = ["claude", "-p", "{task}"]
+# inherit_env = ["ANTHROPIC_API_KEY"]
 """
 
 
@@ -72,8 +85,7 @@ def init(
     config_path = repository / ".agent-arena.toml"
     if config_path.exists() and not force:
         console.print(
-            f"[yellow]Config already exists:[/yellow] {config_path}\n"
-            "Use --force to replace it."
+            f"[yellow]Config already exists:[/yellow] {config_path}\nUse --force to replace it."
         )
         raise typer.Exit(code=1)
 
@@ -113,6 +125,7 @@ def run(
         1800,
         "--timeout",
         min=1,
+        max=86400,
         help="Maximum seconds per agent and check command.",
     ),
     keep_worktrees: bool = typer.Option(
@@ -153,14 +166,117 @@ def run(
             str(outcome.returncode),
         )
     console.print(table)
+    console.print(f"Run ID: [cyan]{run_dir.name}[/cyan]")
     console.print(f"Base commit: [cyan]{base_sha[:12]}[/cyan]")
     console.print(f"Artifacts: [cyan]{run_dir}[/cyan]")
     if keep_worktrees:
         console.print("Worktrees were kept in the system temporary directory.")
+        for outcome in outcomes:
+            if outcome.workspace:
+                console.print(f"  {outcome.name}: {outcome.workspace}")
     console.print(
         "[yellow]Review patches and logs before sharing them; run artifacts can contain "
         "prompts and repository data.[/yellow]"
     )
+
+
+@app.command()
+def runs(
+    repo: Path = typer.Option(
+        Path("."),
+        "--repo",
+        "-C",
+        help="Git repository whose local run history to list.",
+        file_okay=False,
+        dir_okay=True,
+    ),
+) -> None:
+    """List local Agent Arena runs for a repository."""
+    try:
+        repository = resolve_repository(repo)
+    except ArenaError as error:
+        console.print(f"[red]Cannot list runs:[/red] {error}")
+        raise typer.Exit(code=2) from error
+
+    runs_dir = run_artifacts_directory(repository)
+    if not runs_dir.is_dir():
+        console.print("No runs found. Start one with arena run.")
+        return
+
+    table = Table(title=f"Agent Arena runs · {repository.name}")
+    table.add_column("Run ID", style="cyan")
+    table.add_column("Created")
+    table.add_column("Agents", justify="right")
+    table.add_column("Base commit")
+    found = 0
+    for run_dir in sorted(runs_dir.iterdir(), key=lambda item: item.name, reverse=True):
+        if run_dir.is_symlink() or not run_dir.is_dir():
+            continue
+        manifest_path = run_dir / "run.json"
+        if manifest_path.is_symlink():
+            continue
+        try:
+            with manifest_path.open("rb") as source:
+                raw_manifest = source.read(1_000_001)
+            if len(raw_manifest) > 1_000_000:
+                continue
+            manifest = json.loads(raw_manifest.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        agents = manifest.get("agents", [])
+        if not isinstance(agents, list):
+            agents = []
+        created = str(manifest.get("created_at", "")).replace("T", " ")[:19]
+        base_sha = str(manifest.get("base_sha", ""))[:12]
+        table.add_row(run_dir.name, created, str(len(agents)), base_sha)
+        found += 1
+
+    if not found:
+        console.print("No complete runs found. Start one with arena run.")
+        return
+    console.print(table)
+    console.print("Open a report with: arena report RUN_ID --repo PATH --open")
+
+
+@app.command()
+def report(
+    run_id: str = typer.Argument(..., help="Run ID shown by arena run or arena runs."),
+    repo: Path = typer.Option(
+        Path("."),
+        "--repo",
+        "-C",
+        help="Git repository that owns the run.",
+        file_okay=False,
+        dir_okay=True,
+    ),
+    open_report: bool = typer.Option(
+        False,
+        "--open",
+        help="Open the generated report in your default browser.",
+    ),
+) -> None:
+    """Generate an offline side-by-side HTML report for a run."""
+    if not re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{8}", run_id):
+        console.print("[red]Invalid run ID format.[/red]")
+        raise typer.Exit(code=2)
+
+    try:
+        repository = resolve_repository(repo)
+        runs_dir = run_artifacts_directory(repository).resolve()
+        run_dir = runs_dir / run_id
+        if run_dir.is_symlink() or not run_dir.is_dir():
+            raise ArenaError(f"Run not found: {run_id}")
+        run_dir.resolve().relative_to(runs_dir)
+        report_path = create_report(run_dir)
+    except (ArenaError, ValueError) as error:
+        console.print(f"[red]Cannot create report:[/red] {error}")
+        raise typer.Exit(code=2) from error
+
+    console.print(f"Report: [cyan]{report_path}[/cyan]")
+    if open_report:
+        webbrowser.open(report_path.as_uri())
 
 
 def _outcome_label(outcome: AgentOutcome) -> str:

@@ -10,7 +10,7 @@ Agent Arena is an open-source harness for running coding agents against the same
 
 ## Project status
 
-Early development. The local runner can launch configured commands in parallel Git worktrees; report generation and container isolation are still planned.
+Early development. The local runner can launch configured commands in parallel Git worktrees and produce an offline HTML comparison report. Container isolation and benchmark suites are still planned.
 
 ## Why Agent Arena?
 
@@ -54,9 +54,14 @@ arena run \
   --task "Fix the bug described in issue #42" \
   --agent codex \
   --agent claude
+
+arena runs --repo /path/to/your/repository
+arena report RUN_ID --repo /path/to/your/repository --open
 ```
 
 The target repository must be clean, except for an untracked config file. Runs start from its current HEAD commit. Each agent gets a detached worktree, and all agents run concurrently. Patches and logs are saved under the operating system's temporary directory in an agent-arena folder.
+
+A run can include up to 16 agents. Use --timeout to set the per-command limit; the maximum is 24 hours. Agent commands receive a minimal environment by default, with opt-in environment variable names available per profile.
 
 Optional checks can be added to the top level of .agent-arena.toml:
 
@@ -73,7 +78,8 @@ Check commands run separately in each agent's worktree after the agent command f
 - [x] Capture patches, logs, exit codes, elapsed time, and optional check results.
 - [ ] Define a provider adapter contract.
 - [x] Add configurable checks.
-- [ ] Add a side-by-side result view.
+- [x] Add an offline side-by-side HTML report.
+- [ ] Add repeatable benchmark suites.
 - [ ] Add an optional container runner for stronger isolation.
 
 See [the roadmap](docs/roadmap.md) and [the architecture notes](docs/architecture.md).
@@ -86,9 +92,13 @@ Agent Arena will not ask users to paste model API keys into its configuration. P
 
 Run artifacts include the task prompt, agent output, and generated patch. They are stored locally under the system temporary directory; review them before sharing.
 
+Child processes receive a small set of operating-system environment variables by default. To pass a specific credential variable to an agent, add its name to that profile's inherit_env list; the value is read from your current environment and is never copied into the run manifest. Agent Arena redacts exact allowlisted values from saved stdout and stderr logs, but tools can transform or encode secrets. Check commands do not receive profile-specific credentials.
+
 ## Contributing
 
 Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and use the issue templates for bugs and feature proposals.
+
+Pull requests run Ruff lint and formatting checks on Python 3.11, 3.12, and 3.13. Dependabot checks Python and GitHub Actions dependencies weekly.
 
 ## License
 
