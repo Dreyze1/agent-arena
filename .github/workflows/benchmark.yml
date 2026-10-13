@@ -1,0 +1,46 @@
+name: Agent Arena benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Path to a committed benchmark TOML file
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Run benchmark suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install Agent Arena
+        run: python -m pip install .
+
+      - name: Run benchmark
+        env:
+          TMPDIR: ${{ runner.temp }}
+          SUITE_PATH: ${{ inputs.suite }}
+        run: arena benchmark --suite "$SUITE_PATH" --timeout 1800
+
+      - name: Upload aggregate summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-arena-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/agent-arena/*/benchmarks/*/summary.csv
+          if-no-files-found: warn
+          retention-days: 14

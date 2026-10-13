@@ -15,6 +15,7 @@ Run several coding agents against one task from the same starting commit and mak
 7. **Benchmark suites** — execute versioned TOML task collections against the same agents and base commit, preserving per-run results plus aggregate JSON and CSV summaries.
 8. **Patch export** — validate a selected run artifact, apply its patch in a temporary detached worktree, and create a local branch commit without switching the user's checkout.
 9. **Container executor** — run agent and check commands in disposable Docker containers with a writable worktree, isolated per-agent Git metadata, a read-only shallow base snapshot, configurable resource caps, and an explicit network policy.
+10. **CI summaries** — support manual GitHub Actions benchmark runs and upload aggregate CSV metrics without prompts, patches, logs, or run manifests.
 
 ## Run artifact shape
 

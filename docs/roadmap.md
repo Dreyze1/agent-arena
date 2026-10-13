@@ -26,7 +26,7 @@ This roadmap describes the first useful release. Priorities may change as people
 
 - [x] Add an optional Docker-backed runner.
 - [x] Add explicit CPU, memory, process, capability, and network controls.
-- [ ] Add CI integration that uploads sanitized run artifacts.
+- [x] Add CI integration that uploads a minimal aggregate summary.
 
 ## Out of scope for the first release
 

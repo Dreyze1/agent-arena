@@ -79,3 +79,6 @@ The JSON stores suite metadata, base commit, per-task run IDs, and aggregate res
 run also appears in `arena runs`, where it can be opened with the offline HTML report. The files stay
 in the operating system's temporary directory and may contain prompts and repository details;
 review them before sharing.
+
+For a manual GitHub Actions workflow that uploads only aggregate metrics, see the
+[GitHub Actions guide](github-actions.md).

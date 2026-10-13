@@ -88,10 +88,12 @@ suite format, result metrics, and artifact layout.
 - [x] Export a selected agent patch as a local branch.
 - [x] Add versioned benchmark suites with checks and aggregate CSV/JSON results.
 - [x] Add an optional Docker runner with explicit network and resource limits.
+- [x] Add a manual GitHub Actions workflow that uploads aggregate benchmark metrics.
 
 See [the roadmap](docs/roadmap.md) and [the architecture notes](docs/architecture.md).
 See [the export guide](docs/exports.md) to save a selected result as a branch.
 See [the container guide](docs/containers.md) to configure Docker execution.
+See [the GitHub Actions guide](docs/github-actions.md) to run benchmarks in CI.
 
 ## Security model
 

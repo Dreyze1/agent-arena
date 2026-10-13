@@ -243,8 +243,22 @@ def _save_benchmark(manifest_path: Path, manifest: dict[str, Any]) -> None:
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, fieldnames=_SUMMARY_FIELDS, extrasaction="ignore")
     writer.writeheader()
-    writer.writerows(manifest["summary"])
+    writer.writerows(
+        {
+            **summary,
+            "agent": _spreadsheet_safe_text(summary["agent"]),
+        }
+        for summary in manifest["summary"]
+    )
     _atomic_write(manifest_path.with_name("summary.csv"), output.getvalue())
+
+
+def _spreadsheet_safe_text(value: str) -> str:
+    """Prevent agent-controlled CSV text from being interpreted as a spreadsheet formula."""
+    first_non_space = value.lstrip(" \t\r\n")[:1]
+    if value.startswith(("\t", "\r", "\n")) or first_non_space in {"=", "+", "-", "@"}:
+        return "'" + value
+    return value
 
 
 def run_benchmark(
