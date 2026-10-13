@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
+import uuid
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -372,6 +375,25 @@ def _render_agent(run_dir: Path, agent: dict[str, Any], index: int) -> str:
     """
 
 
+def _atomic_write(path: Path, contents: str) -> None:
+    temporary_candidate = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    created_temporary_path: Path | None = None
+    try:
+        with temporary_candidate.open("x", encoding="utf-8", newline="\n") as destination:
+            created_temporary_path = temporary_candidate
+            destination.write(contents)
+            destination.flush()
+            os.fsync(destination.fileno())
+        os.replace(temporary_candidate, path)
+        created_temporary_path = None
+    except OSError as error:
+        raise ArenaError(f"Could not write report to {path}: {error}") from error
+    finally:
+        if created_temporary_path is not None:
+            with suppress(OSError):
+                created_temporary_path.unlink(missing_ok=True)
+
+
 def create_report(run_dir: Path) -> Path:
     """Render a local, offline HTML report from a run's manifest and artifacts."""
     run_dir = run_dir.expanduser()
@@ -445,8 +467,5 @@ def create_report(run_dir: Path) -> Path:
     report_path = run_dir / "report.html"
     if report_path.is_symlink():
         raise ArenaError(f"Refusing to overwrite a symlink: {report_path}")
-    try:
-        report_path.write_text(html_document, encoding="utf-8")
-    except OSError as error:
-        raise ArenaError(f"Could not write report to {report_path}: {error}") from error
+    _atomic_write(report_path, html_document)
     return report_path

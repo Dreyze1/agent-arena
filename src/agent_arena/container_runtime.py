@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_arena.errors import ArenaError
+from agent_arena.git_utils import git_subprocess_environment
 
 _IMAGE_REFERENCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}\Z")
 _IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -133,6 +134,7 @@ def _git_command(*arguments: str) -> subprocess.CompletedProcess[str]:
             errors="replace",
             check=False,
             timeout=120,
+            env=git_subprocess_environment(),
         )
     except FileNotFoundError as error:
         raise ArenaError("Git was not found while preparing container workspaces.") from error

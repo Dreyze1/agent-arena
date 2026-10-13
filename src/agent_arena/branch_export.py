@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agent_arena.git_utils import git_commit_environment, git_subprocess_environment
 from agent_arena.runner import (
     ArenaError,
     _git,
@@ -101,6 +102,7 @@ def _validate_branch_name(repository: Path, branch_name: str) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
+            env=git_subprocess_environment(),
         )
     except FileNotFoundError as error:
         raise ArenaError("Git was not found. Install Git and make sure it is on PATH.") from error
@@ -114,6 +116,7 @@ def _validate_branch_name(repository: Path, branch_name: str) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
+        env=git_subprocess_environment(),
     )
     if existing.returncode == 0:
         raise ArenaError(f"Local branch already exists: {branch_name}")
@@ -195,6 +198,7 @@ def export_agent_branch(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             check=False,
+            env=git_subprocess_environment(),
         )
         if staged.returncode == 0:
             raise ArenaError("The selected patch contains no changes.")
@@ -205,7 +209,13 @@ def export_agent_branch(
         expected_tree = _git(worktree_path, "write-tree").stdout.strip()
         safe_agent = _safe_name(agent_name)
         commit_message = f"Agent Arena: {safe_agent} result from {run_id}"
-        _git(worktree_path, "commit", "-m", commit_message)
+        _git(
+            worktree_path,
+            "commit",
+            "-m",
+            commit_message,
+            env=git_commit_environment(worktree_path),
+        )
         commit_sha = _git(worktree_path, "rev-parse", "HEAD").stdout.strip()
         committed_tree = _git(worktree_path, "rev-parse", "HEAD^{tree}").stdout.strip()
         if committed_tree != expected_tree:
@@ -222,6 +232,7 @@ def export_agent_branch(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 check=False,
+                env=git_subprocess_environment(),
             )
             if removal.returncode:
                 detail = removal.stderr.decode("utf-8", errors="replace").strip()
@@ -232,6 +243,7 @@ def export_agent_branch(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
+                env=git_subprocess_environment(),
             )
 
     if not branch_created:

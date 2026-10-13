@@ -1,22 +1,31 @@
 """Command-line entry point for Agent Arena."""
 
 import json
+import os
 import re
+import shlex
+import stat
+import tempfile
+import uuid
 import webbrowser
+from contextlib import suppress
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from agent_arena import __version__
 from agent_arena.adapters import available_adapter_descriptors
-from agent_arena.benchmark import run_benchmark
+from agent_arena.benchmark import benchmark_artifacts_directory, run_benchmark
+from agent_arena.benchmark_report import create_benchmark_report
 from agent_arena.branch_export import export_agent_branch
+from agent_arena.demo import run_demo
+from agent_arena.errors import ArenaError, BenchmarkCancelled
 from agent_arena.report import create_report
 from agent_arena.runner import (
     AgentOutcome,
-    ArenaError,
     resolve_repository,
     run_arena,
     run_artifacts_directory,
@@ -30,6 +39,41 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+def _quote_cli_path(path: Path) -> str:
+    """Quote a path for the shell used by the current platform."""
+    value = str(path)
+    return f'"{value}"' if os.name == "nt" else shlex.quote(value)
+
+
+def _is_symlink_or_junction(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    try:
+        path_stat = path.lstat()
+    except OSError:
+        return False
+    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return bool(reparse_point and getattr(path_stat, "st_file_attributes", 0) & reparse_point)
+
+
+def _resolve_artifact_root(path: Path) -> Path:
+    """Reject linked artifact directories before resolving any of their components."""
+    temp_root = Path(tempfile.gettempdir()).absolute()
+    artifact_root = path.expanduser().absolute()
+    try:
+        components = artifact_root.relative_to(temp_root).parts
+    except ValueError as error:
+        raise ArenaError("Artifact history directory is outside temporary storage.") from error
+
+    current = temp_root
+    for component in components:
+        current = current / component
+        if _is_symlink_or_junction(current):
+            raise ArenaError(f"Artifact history path contains a symlink or junction: {current}")
+    return artifact_root.resolve()
+
 
 CONFIG_TEMPLATE = """\
 version = 1
@@ -122,13 +166,51 @@ def init(
         raise typer.BadParameter(f"Directory does not exist: {repository}", param_hint="--path")
 
     config_path = repository / ".agent-arena.toml"
+    if config_path.is_symlink():
+        console.print(
+            f"[red]Refusing to write through a symlinked config path:[/red] {config_path}"
+        )
+        raise typer.Exit(code=1)
     if config_path.exists() and not force:
         console.print(
             f"[yellow]Config already exists:[/yellow] {config_path}\nUse --force to replace it."
         )
         raise typer.Exit(code=1)
 
-    config_path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
+    temporary_path: Path | None = None
+    try:
+        if force:
+            temporary_candidate = config_path.with_name(
+                f".{config_path.name}.{uuid.uuid4().hex}.tmp"
+            )
+            with temporary_candidate.open("x", encoding="utf-8", newline="\n") as destination:
+                temporary_path = temporary_candidate
+                destination.write(CONFIG_TEMPLATE)
+            os.replace(temporary_path, config_path)
+            temporary_path = None
+        else:
+            with config_path.open("x", encoding="utf-8", newline="\n") as destination:
+                destination.write(CONFIG_TEMPLATE)
+    except FileExistsError as error:
+        if config_path.is_symlink():
+            console.print(
+                f"[red]Refusing to write through a symlinked config path:[/red] {config_path}"
+            )
+            raise typer.Exit(code=1) from error
+        if config_path.exists() and not force:
+            console.print(
+                f"[yellow]Config already exists:[/yellow] {config_path}\nUse --force to replace it."
+            )
+            raise typer.Exit(code=1) from error
+        console.print(f"[red]Could not create temporary config file:[/red] {error}")
+        raise typer.Exit(code=2) from error
+    except OSError as error:
+        console.print(f"[red]Could not create config:[/red] {error}")
+        raise typer.Exit(code=2) from error
+    finally:
+        if temporary_path is not None:
+            with suppress(OSError):
+                temporary_path.unlink(missing_ok=True)
     console.print(f"[green]Created[/green] {config_path}")
 
 
@@ -303,7 +385,7 @@ def report(
 
     try:
         repository = resolve_repository(repo)
-        runs_dir = run_artifacts_directory(repository).resolve()
+        runs_dir = _resolve_artifact_root(run_artifacts_directory(repository))
         run_dir = runs_dir / run_id
         if run_dir.is_symlink() or not run_dir.is_dir():
             raise ArenaError(f"Run not found: {run_id}")
@@ -316,6 +398,48 @@ def report(
     console.print(f"Report: [cyan]{report_path}[/cyan]")
     if open_report:
         webbrowser.open(report_path.as_uri())
+
+
+@app.command()
+def benchmark_report(
+    benchmark_id: str = typer.Argument(..., help="Benchmark ID shown by arena benchmark."),
+    repo: Path = typer.Option(
+        Path("."),
+        "--repo",
+        "-C",
+        help="Git repository that owns the benchmark history.",
+        file_okay=False,
+        dir_okay=True,
+    ),
+    open_report: bool = typer.Option(
+        False,
+        "--open",
+        help="Open the generated scorecard in your default browser.",
+    ),
+) -> None:
+    """Generate an offline scorecard for a saved benchmark, including partial results."""
+    if not re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{8}", benchmark_id):
+        console.print("[red]Invalid benchmark ID format.[/red]")
+        raise typer.Exit(code=2)
+
+    try:
+        repository = resolve_repository(repo)
+        benchmarks_dir = _resolve_artifact_root(benchmark_artifacts_directory(repository))
+        benchmark_dir = benchmarks_dir / benchmark_id
+        if benchmark_dir.is_symlink() or not benchmark_dir.is_dir():
+            raise ArenaError(f"Benchmark not found: {benchmark_id}")
+        benchmark_dir.resolve().relative_to(benchmarks_dir)
+        manifest_path = benchmark_dir / "benchmark.json"
+        if manifest_path.is_symlink():
+            raise ArenaError(f"Benchmark manifest is a symlink: {manifest_path}")
+        scorecard_path = create_benchmark_report(manifest_path)
+    except (ArenaError, ValueError) as error:
+        console.print(f"[red]Cannot create benchmark scorecard:[/red] {error}")
+        raise typer.Exit(code=2) from error
+
+    console.print(f"Scorecard: [cyan]{scorecard_path}[/cyan]")
+    if open_report:
+        webbrowser.open(scorecard_path.as_uri())
 
 
 @app.command()
@@ -369,8 +493,54 @@ def benchmark(
             timeout_seconds=timeout,
             keep_worktrees=keep_worktrees,
         )
+    except BenchmarkCancelled as error:
+        console.print(
+            Text(
+                f"Benchmark cancelled. Partial results are at {error.manifest_path}.",
+                no_wrap=True,
+            ),
+            soft_wrap=True,
+        )
+        console.print(
+            Text(
+                "Create a scorecard for the saved partial results with: "
+                f"arena benchmark-report {error.benchmark_id} --repo {_quote_cli_path(repo)}",
+                no_wrap=True,
+            ),
+            soft_wrap=True,
+        )
+        raise typer.Exit(code=130) from error
     except ArenaError as error:
         console.print(f"[red]Cannot run benchmark:[/red] {error}")
+        partial_id = re.search(
+            r"Benchmark (\d{8}T\d{6}Z-[0-9a-f]{8}) stopped",
+            str(error),
+        )
+        if partial_id:
+            console.print(
+                Text(
+                    "Create a scorecard for the saved partial results with: "
+                    f"arena benchmark-report {partial_id.group(1)} --repo {_quote_cli_path(repo)}",
+                    no_wrap=True,
+                ),
+                soft_wrap=True,
+            )
+        raise typer.Exit(code=2) from error
+
+    try:
+        scorecard_path = create_benchmark_report(manifest_path)
+    except ArenaError as error:
+        console.print(
+            f"[red]Benchmark finished, but its scorecard could not be created:[/red] {error}"
+        )
+        console.print(
+            Text(
+                f"Results remain at {manifest_path}. Retry with: "
+                f"arena benchmark-report {manifest['benchmark_id']} --repo {_quote_cli_path(repo)}",
+                no_wrap=True,
+            ),
+            soft_wrap=True,
+        )
         raise typer.Exit(code=2) from error
 
     table = Table(title=f"Benchmark · {manifest['suite_name']}")
@@ -399,10 +569,55 @@ def benchmark(
     console.print(f"Base commit: [cyan]{manifest['base_sha'][:12]}[/cyan]")
     console.print(f"Results: [cyan]{manifest_path}[/cyan]")
     console.print(f"CSV summary: [cyan]{manifest_path.with_name('summary.csv')}[/cyan]")
+    console.print(f"HTML scorecard: [cyan]{scorecard_path}[/cyan]")
     console.print(
         "[yellow]A verified pass requires a successful agent command and all configured checks. "
         "Runs without checks are reported as unverified.[/yellow]"
     )
+
+
+@app.command()
+def demo(
+    open_report: bool = typer.Option(
+        False,
+        "--open",
+        help="Open the generated offline scorecard in your default browser.",
+    ),
+) -> None:
+    """Run a deterministic, offline benchmark using two built-in mock agents."""
+    try:
+        result = run_demo()
+    except ArenaError as error:
+        console.print(f"[red]Cannot run offline demo:[/red] {error}")
+        raise typer.Exit(code=2) from error
+
+    table = Table(title="Agent Arena demo - local mock agents")
+    table.add_column("Agent", style="bold")
+    table.add_column("Verified passes")
+    table.add_column("Agent successes")
+    table.add_column("Check failures")
+    for summary in result.summary:
+        pass_rate = summary["verified_pass_rate"]
+        verified = (
+            "not checked"
+            if pass_rate is None
+            else f"{summary['verified_passes']}/{summary['verified_attempts']}"
+        )
+        table.add_row(
+            str(summary["agent"]),
+            verified,
+            f"{summary['agent_successes']}/{summary['attempts']}",
+            str(summary["check_failure_attempts"]),
+        )
+    console.print(table)
+    console.print(Text(f"Demo workspace: {result.workspace}", no_wrap=True), soft_wrap=True)
+    console.print(Text(f"Temporary repository: {result.repository}", no_wrap=True), soft_wrap=True)
+    console.print(f"Benchmark ID: [cyan]{result.benchmark_id}[/cyan]")
+    console.print(Text(f"Scorecard: {result.scorecard_path}", no_wrap=True), soft_wrap=True)
+    for report_path in result.run_report_paths:
+        console.print(Text(f"Run report: {report_path}", no_wrap=True), soft_wrap=True)
+    if open_report:
+        webbrowser.open(result.scorecard_path.as_uri())
 
 
 @app.command()

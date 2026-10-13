@@ -36,6 +36,7 @@ from agent_arena.container_runtime import (
     resolve_local_image,
 )
 from agent_arena.errors import ArenaError
+from agent_arena.git_utils import git_subprocess_environment
 
 
 @dataclass
@@ -89,7 +90,11 @@ def run_artifacts_directory(repository: Path) -> Path:
     return Path(tempfile.gettempdir()) / "agent-arena" / repository_key / "runs"
 
 
-def _git(repository: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _git(
+    repository: Path,
+    *args: str,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     try:
         result = subprocess.run(
             ["git", "-C", str(repository), *args],
@@ -98,6 +103,7 @@ def _git(repository: Path, *args: str) -> subprocess.CompletedProcess[str]:
             encoding="utf-8",
             errors="replace",
             check=False,
+            env=git_subprocess_environment() if env is None else env,
         )
     except FileNotFoundError as error:
         raise ArenaError("Git was not found. Install Git and make sure it is on PATH.") from error
@@ -230,6 +236,7 @@ def _has_uncommitted_changes(repository: Path, allowed_untracked: set[Path]) -> 
         ],
         capture_output=True,
         check=False,
+        env=git_subprocess_environment(),
     )
     if result.returncode:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
@@ -790,12 +797,14 @@ def run_arena(
                     capture_output=True,
                     text=True,
                     check=False,
+                    env=git_subprocess_environment(),
                 )
             subprocess.run(
                 ["git", "-C", str(repository), "worktree", "prune"],
                 capture_output=True,
                 text=True,
                 check=False,
+                env=git_subprocess_environment(),
             )
             try:
                 workspace_root.rmdir()

@@ -74,11 +74,27 @@ The terminal table reports:
 - **Check coverage:** share of attempts that ran at least one check.
 - **Average time:** mean agent command duration, excluding checks.
 
-The benchmark directory is printed after the run and contains `benchmark.json` and `summary.csv`.
-The JSON stores suite metadata, base commit, per-task run IDs, and aggregate results. Each per-task
-run also appears in `arena runs`, where it can be opened with the offline HTML report. The files stay
-in the operating system's temporary directory and may contain prompts and repository details;
-review them before sharing.
+The benchmark directory is printed after the run and contains `benchmark.json`, `summary.csv`, and
+`report.html`. The JSON stores suite metadata, base commit, per-task run IDs, prompts, repository
+path, and aggregate results. The HTML scorecard is generated locally and shows aggregate metrics
+plus a task-by-agent matrix. It labels successful attempts without checks as unverified, failed
+checks and timeouts separately, and missing attempts as incomplete. Its metrics use only recorded
+attempts; incomplete attempts are shown separately instead of being counted as failures or zeros.
+
+The scorecard includes the suite name, task IDs, agent names, attempt counts, outcomes, timings, and
+benchmark ID. It omits task prompts, repository paths, check commands, patches, and logs. It is a
+single offline HTML file with no external assets or network calls. Review the JSON and per-run
+artifacts before sharing them; those files can contain prompts and repository details.
+
+`arena benchmark` creates `report.html` automatically after a completed suite. To regenerate a
+scorecard later, including one for a failed, cancelled, or still-running benchmark, use its ID:
+
+```bash
+arena benchmark-report 20261013T120000Z-abcdef12 --repo /path/to/your/repository --open
+```
+
+The command validates the ID and reads only that benchmark's local manifest. Each per-task run also
+appears in `arena runs`; use `arena report RUN_ID` when you want to inspect its patch and logs.
 
 For a manual GitHub Actions workflow that uploads only aggregate metrics, see the
 [GitHub Actions guide](github-actions.md).

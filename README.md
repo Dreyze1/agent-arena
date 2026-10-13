@@ -37,16 +37,46 @@ Task + repository
 
 ## Quick start
 
-Requires Python 3.11+, Git, and the command-line tools for the agents you want to run.
+Requires Python 3.11+ and Git. Provider CLIs are needed only when you run those providers; the
+built-in demo uses local mock agents.
 
 ```bash
 git clone https://github.com/Dreyze1/agent-arena.git
 cd agent-arena
+```
+
+Create and activate a virtual environment, then install Agent Arena:
+
+```bash
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -e .
+```
+
+```powershell
+# Windows PowerShell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
+
+Verify the installation and inspect a real benchmark without API keys or provider CLIs:
+
+```bash
+arena demo --open
+```
+
+Initialize the repository you want to work on:
+
+```bash
 arena init --path /path/to/your/repository
 ```
 
-Edit .agent-arena.toml in the target repository to choose the agent commands. Then run:
+The starter config includes `codex` and `claude` command profiles. Install and sign in to the
+provider CLIs you plan to use, then check that their commands in `.agent-arena.toml` match your
+setup. Agent Arena starts those commands; each provider CLI manages its own authentication.
+Then run:
 
 ```bash
 arena run \
@@ -59,6 +89,8 @@ arena runs --repo /path/to/your/repository
 arena report RUN_ID --repo /path/to/your/repository --open
 arena export RUN_ID --repo /path/to/your/repository --agent codex
 arena benchmark --repo /path/to/your/repository --suite benchmarks/suite.toml
+arena benchmark-report BENCHMARK_ID --repo /path/to/your/repository --open
+arena demo --open
 ```
 
 The target repository must be clean, except for an untracked config file. Runs start from its current HEAD commit. Each agent gets a detached worktree, and all agents run concurrently. Patches and logs are saved under the operating system's temporary directory in an agent-arena folder.
@@ -79,6 +111,12 @@ For multi-task comparisons, commit a TOML suite in the target repository or keep
 repository, then run `arena benchmark`. See the [benchmark guide](docs/benchmarks.md) for the
 suite format, result metrics, and artifact layout.
 
+Try `arena demo` for a real benchmark without configuring an agent provider. It creates a small
+temporary Git repository, runs two deterministic mock agents against it, checks their changes, and
+saves an offline scorecard plus per-run report in the system temporary directory. It does not use
+API keys, Docker, or network calls, and it leaves the repository where you ran the command alone.
+See the [demo guide](docs/demo.md) for details.
+
 ## Roadmap
 
 - [x] Publish the project scaffold and contribution guidelines.
@@ -89,6 +127,7 @@ suite format, result metrics, and artifact layout.
 - [x] Add an offline side-by-side HTML report.
 - [x] Export a selected agent patch as a local branch.
 - [x] Add versioned benchmark suites with checks and aggregate CSV/JSON results.
+- [x] Generate an offline HTML scorecard with per-task, per-agent benchmark outcomes.
 - [x] Add an optional Docker runner with explicit network and resource limits.
 - [x] Add a manual GitHub Actions workflow that uploads aggregate benchmark metrics.
 
@@ -113,7 +152,9 @@ Child processes receive a small set of operating-system environment variables by
 
 Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and use the issue templates for bugs and feature proposals.
 
-Pull requests run Ruff lint, formatting, and tests on Python 3.11, 3.12, and 3.13. Dependabot checks Python and GitHub Actions dependencies weekly.
+Pull requests are configured to run Ruff lint, formatting, and tests on Ubuntu 24.04 and Windows
+with Python 3.11, 3.12, and 3.13. The Windows job also runs `arena demo`. Dependabot checks Python
+and GitHub Actions dependencies weekly.
 
 ## License
 

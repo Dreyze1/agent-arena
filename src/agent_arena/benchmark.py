@@ -17,8 +17,8 @@ from typing import Any
 
 from agent_arena.adapters import resolve_agent_adapter
 from agent_arena.container_runtime import resolve_local_image
+from agent_arena.errors import ArenaError, BenchmarkCancelled
 from agent_arena.runner import (
-    ArenaError,
     _child_environment,
     _read_config,
     _validate_checks,
@@ -403,12 +403,12 @@ def run_benchmark(
                 _save_benchmark(manifest_path, manifest)
 
         manifest["status"] = "complete"
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as error:
         manifest["status"] = "cancelled"
         manifest["error"] = "Interrupted by user."
         manifest["completed_at"] = datetime.now(UTC).isoformat()
         _save_benchmark(manifest_path, manifest)
-        raise
+        raise BenchmarkCancelled(benchmark_id, manifest_path) from error
     except Exception as error:
         manifest["status"] = "failed"
         manifest["error"] = str(error)
