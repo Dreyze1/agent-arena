@@ -25,6 +25,7 @@ from agent_arena.runner import (
 app = typer.Typer(
     name="arena",
     help="Run coding agents on the same task and compare their patches.",
+    invoke_without_command=True,
     no_args_is_help=True,
     add_completion=False,
 )
