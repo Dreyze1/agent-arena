@@ -51,6 +51,19 @@ def resolve_repository(path: Path) -> Path:
     return Path(_git(repository, "rev-parse", "--show-toplevel").stdout.strip()).resolve()
 
 
+def repository_head(repository: Path) -> str:
+    """Return the current commit of a repository or worktree."""
+    return _git(repository, "rev-parse", "HEAD").stdout.strip()
+
+
+def file_sha256(path: Path) -> str:
+    """Return the SHA-256 digest of a configuration or fixture file."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as error:
+        raise ArenaError(f"Could not read file {path}: {error}") from error
+
+
 def run_artifacts_directory(repository: Path) -> Path:
     """Return the local, per-repository run history directory."""
     repository_key = hashlib.sha256(str(repository.resolve()).encode("utf-8")).hexdigest()[:12]
@@ -123,9 +136,14 @@ def _read_config(config_path: Path) -> tuple[dict[str, AgentProfile], list[list[
         safe_names.add(safe)
         agents[name] = AgentProfile(tuple(command), tuple(inherit_env))
 
-    raw_checks = data.get("checks", [])
+    checks = _validate_checks(data.get("checks", []), "top-level checks")
+
+    return agents, checks
+
+
+def _validate_checks(raw_checks: Any, label: str) -> list[list[str]]:
     if not isinstance(raw_checks, list):
-        raise ArenaError("The top-level checks value must be an array of command arrays.")
+        raise ArenaError(f"{label} must be an array of command arrays.")
     checks: list[list[str]] = []
     for index, command in enumerate(raw_checks, start=1):
         if (
@@ -133,10 +151,9 @@ def _read_config(config_path: Path) -> tuple[dict[str, AgentProfile], list[list[
             or not command
             or not all(isinstance(part, str) and part for part in command)
         ):
-            raise ArenaError(f"Check {index} must be a non-empty string array.")
+            raise ArenaError(f"{label} item {index} must be a non-empty string array.")
         checks.append(command)
-
-    return agents, checks
+    return checks
 
 
 def _expand_command(
@@ -161,7 +178,7 @@ def _expand_command(
     return expanded
 
 
-def _has_uncommitted_changes(repository: Path, allowed_untracked: Path | None) -> bool:
+def _has_uncommitted_changes(repository: Path, allowed_untracked: set[Path]) -> bool:
     result = subprocess.run(
         [
             "git",
@@ -179,10 +196,10 @@ def _has_uncommitted_changes(repository: Path, allowed_untracked: Path | None) -
         detail = result.stderr.decode("utf-8", errors="replace").strip()
         raise ArenaError(f"Could not inspect repository status: {detail}")
 
-    allowed_relative = None
-    if allowed_untracked is not None:
+    allowed_relatives: set[str] = set()
+    for allowed_path in allowed_untracked:
         try:
-            allowed_relative = allowed_untracked.relative_to(repository).as_posix()
+            allowed_relatives.add(allowed_path.relative_to(repository).as_posix())
         except ValueError:
             pass
 
@@ -191,7 +208,7 @@ def _has_uncommitted_changes(repository: Path, allowed_untracked: Path | None) -
             continue
         status_code = record[:2]
         path = record[3:]
-        if status_code == "??" and path == allowed_relative:
+        if status_code == "??" and path in allowed_relatives:
             continue
         return True
     return False
@@ -495,6 +512,10 @@ def run_arena(
     selected_agents: list[str] | None,
     timeout_seconds: int,
     keep_worktrees: bool,
+    checks_override: list[list[str]] | None = None,
+    base_revision: str | None = None,
+    allowed_untracked_paths: tuple[Path, ...] = (),
+    expected_config_sha256: str | None = None,
 ) -> tuple[Path, str, list[AgentOutcome]]:
     """Run each selected agent in its own worktree and save review artifacts."""
     if not task.strip():
@@ -510,14 +531,31 @@ def run_arena(
     if not config.is_absolute():
         config = repository / config
     config = config.resolve()
-    allowed_untracked_config = config if config.is_relative_to(repository) else None
-    if _has_uncommitted_changes(repository, allowed_untracked_config):
+    allowed_untracked = {
+        path.resolve()
+        for path in (config, *allowed_untracked_paths)
+        if path.resolve().is_relative_to(repository)
+    }
+    if _has_uncommitted_changes(repository, allowed_untracked):
         raise ArenaError(
             "The repository has uncommitted changes. Commit or stash them first; "
-            "each run starts from HEAD. An untracked config file is allowed."
+            "each run starts from HEAD. Only explicitly selected untracked config files "
+            "are allowed."
         )
-    base_sha = _git(repository, "rev-parse", "HEAD").stdout.strip()
+    base_sha = repository_head(repository)
+    if base_revision is not None and base_sha != base_revision:
+        raise ArenaError(
+            "The repository HEAD changed during the benchmark; "
+            f"expected {base_revision[:12]}, found {base_sha[:12]}."
+        )
+    config_sha_before = file_sha256(config) if expected_config_sha256 is not None else None
     agents, checks = _read_config(config)
+    if expected_config_sha256 is not None and (
+        config_sha_before != expected_config_sha256 or file_sha256(config) != expected_config_sha256
+    ):
+        raise ArenaError("The agent configuration changed during the benchmark.")
+    if checks_override is not None:
+        checks = _validate_checks(checks_override, "benchmark checks")
 
     if selected_agents:
         missing = [name for name in selected_agents if name not in agents]

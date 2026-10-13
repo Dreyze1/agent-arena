@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from agent_arena import __version__
+from agent_arena.benchmark import run_benchmark
 from agent_arena.report import create_report
 from agent_arena.runner import (
     AgentOutcome,
@@ -277,6 +278,93 @@ def report(
     console.print(f"Report: [cyan]{report_path}[/cyan]")
     if open_report:
         webbrowser.open(report_path.as_uri())
+
+
+@app.command()
+def benchmark(
+    suite: Path = typer.Option(
+        ...,
+        "--suite",
+        help="Versioned TOML benchmark suite, relative to the target repository by default.",
+        dir_okay=False,
+    ),
+    repo: Path = typer.Option(
+        Path("."),
+        "--repo",
+        "-C",
+        help="Git repository to benchmark.",
+        file_okay=False,
+        dir_okay=True,
+    ),
+    config: Path = typer.Option(
+        Path(".agent-arena.toml"),
+        "--config",
+        help="Agent profile TOML configuration.",
+        dir_okay=False,
+    ),
+    agent: list[str] = typer.Option(
+        [],
+        "--agent",
+        "-a",
+        help="Agent profile to run; repeat to select more than one.",
+    ),
+    timeout: int = typer.Option(
+        1800,
+        "--timeout",
+        min=1,
+        max=86400,
+        help="Maximum seconds per agent and check command.",
+    ),
+    keep_worktrees: bool = typer.Option(
+        False,
+        "--keep-worktrees",
+        help="Keep every benchmark worktree for inspection.",
+    ),
+) -> None:
+    """Run a repeatable task suite against selected coding agents."""
+    try:
+        manifest_path, manifest = run_benchmark(
+            repository_path=repo,
+            suite_path=suite,
+            config_path=config,
+            selected_agents=agent or None,
+            timeout_seconds=timeout,
+            keep_worktrees=keep_worktrees,
+        )
+    except ArenaError as error:
+        console.print(f"[red]Cannot run benchmark:[/red] {error}")
+        raise typer.Exit(code=2) from error
+
+    table = Table(title=f"Benchmark · {manifest['suite_name']}")
+    table.add_column("Agent", style="bold")
+    table.add_column("Verified passes")
+    table.add_column("Agent success")
+    table.add_column("Check coverage")
+    table.add_column("Avg. time", justify="right")
+    for summary in manifest["summary"]:
+        pass_rate = summary["verified_pass_rate"]
+        verified = (
+            "not checked"
+            if pass_rate is None
+            else f"{summary['verified_passes']}/{summary['verified_attempts']} ({pass_rate:.0%})"
+        )
+        table.add_row(
+            summary["agent"],
+            verified,
+            f"{summary['agent_successes']}/{summary['attempts']}",
+            f"{summary['verification_coverage']:.0%}",
+            f"{summary['mean_duration_seconds']:.1f}s",
+        )
+    console.print(table)
+    console.print(f"Status: [cyan]{manifest['status']}[/cyan]")
+    console.print(f"Benchmark ID: [cyan]{manifest['benchmark_id']}[/cyan]")
+    console.print(f"Base commit: [cyan]{manifest['base_sha'][:12]}[/cyan]")
+    console.print(f"Results: [cyan]{manifest_path}[/cyan]")
+    console.print(f"CSV summary: [cyan]{manifest_path.with_name('summary.csv')}[/cyan]")
+    console.print(
+        "[yellow]A verified pass requires a successful agent command and all configured checks. "
+        "Runs without checks are reported as unverified.[/yellow]"
+    )
 
 
 def _outcome_label(outcome: AgentOutcome) -> str:

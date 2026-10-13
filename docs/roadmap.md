@@ -20,7 +20,7 @@ This roadmap describes the first useful release. Priorities may change as people
 
 - [x] Add a static HTML report for side-by-side patches and check results.
 - [ ] Allow selecting a winning patch and exporting it as a branch.
-- [ ] Add repeatable benchmark suites with task fixtures.
+- [x] Add versioned TOML benchmark suites, repetitions, fixed-base runs, and aggregate results.
 
 ## Milestone 3 — Safer and shareable runs
 

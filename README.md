@@ -57,6 +57,7 @@ arena run \
 
 arena runs --repo /path/to/your/repository
 arena report RUN_ID --repo /path/to/your/repository --open
+arena benchmark --repo /path/to/your/repository --suite benchmarks/suite.toml
 ```
 
 The target repository must be clean, except for an untracked config file. Runs start from its current HEAD commit. Each agent gets a detached worktree, and all agents run concurrently. Patches and logs are saved under the operating system's temporary directory in an agent-arena folder.
@@ -71,6 +72,10 @@ checks = [["python", "-m", "pytest", "-q"], ["ruff", "check", "."]]
 
 Check commands run separately in each agent's worktree after the agent command finishes.
 
+For multi-task comparisons, commit a TOML suite in the target repository or keep it outside the
+repository, then run `arena benchmark`. See the [benchmark guide](docs/benchmarks.md) for the
+suite format, result metrics, and artifact layout.
+
 ## Roadmap
 
 - [x] Publish the project scaffold and contribution guidelines.
@@ -79,7 +84,7 @@ Check commands run separately in each agent's worktree after the agent command f
 - [ ] Define a provider adapter contract.
 - [x] Add configurable checks.
 - [x] Add an offline side-by-side HTML report.
-- [ ] Add repeatable benchmark suites.
+- [x] Add versioned benchmark suites with checks and aggregate CSV/JSON results.
 - [ ] Add an optional container runner for stronger isolation.
 
 See [the roadmap](docs/roadmap.md) and [the architecture notes](docs/architecture.md).
