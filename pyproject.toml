@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-arena"
+version = "0.1.0"
+description = "Run coding agents on the same task and compare their patches."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Dreyze1" }]
+keywords = ["ai-agents", "coding-agents", "developer-tools", "benchmark", "git-worktree"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development",
+]
+dependencies = [
+  "rich>=13.9,<15",
+  "typer>=0.15,<1",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.11,<1"]
+
+[project.scripts]
+arena = "agent_arena.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/Dreyze1/agent-arena"
+Repository = "https://github.com/Dreyze1/agent-arena"
+Issues = "https://github.com/Dreyze1/agent-arena/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_arena"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

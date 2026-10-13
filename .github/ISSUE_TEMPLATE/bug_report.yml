@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible problem with Agent Arena.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Please remove secrets and private repository details before submitting."
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe the intended behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened?
+      description: Include the exact error or unexpected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Run ...\n2. Select ...\n3. See error ..."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Agent Arena version
+      placeholder: "0.1.0 or commit SHA"
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Python version
+      placeholder: "Windows 11, Python 3.12"
