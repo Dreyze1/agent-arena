@@ -10,7 +10,7 @@ Agent Arena is an open-source harness for running coding agents against the same
 
 ## Project status
 
-Early development. Agent Arena can run configured commands locally or in optional Docker containers, compare their Git worktrees, and run repeatable benchmark suites. Shared hosted runs and CI artifact publishing are still planned.
+Early development. Agent Arena can run configured commands locally or in optional Docker containers, compare their Git worktrees, and run repeatable benchmark suites. Package release automation is in place; one-time PyPI Trusted Publishing setup and a first version tag are still required before installing from PyPI.
 
 ## Why Agent Arena?
 
@@ -97,6 +97,7 @@ See [the export guide](docs/exports.md) to save a selected result as a branch.
 See [the container guide](docs/containers.md) to configure Docker execution.
 See [the GitHub Actions guide](docs/github-actions.md) to run benchmarks in CI.
 See [the provider adapter guide](docs/provider-adapters.md) to add provider integrations.
+See [the package release guide](docs/releasing.md) for PyPI Trusted Publishing setup and release steps.
 
 ## Security model
 

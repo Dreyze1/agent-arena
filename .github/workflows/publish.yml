@@ -1,0 +1,79 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Check release tag
+        run: python scripts/check_release_version.py "$GITHUB_REF_NAME"
+
+      - name: Install build and test tools
+        run: python -m pip install -e ".[dev]" build twine
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Lint and check formatting
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Build wheel and source distribution
+        run: python -m build --sdist --wheel
+
+      - name: Validate distributions
+        run: python -m twine check dist/*
+
+      - name: Install wheel in a clean virtual environment
+        run: |
+          python -m venv "$RUNNER_TEMP/agent-arena-venv"
+          "$RUNNER_TEMP/agent-arena-venv/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/agent-arena-venv/bin/arena" --version
+          "$RUNNER_TEMP/agent-arena-venv/bin/arena" adapters
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish package
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/agent-arena/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1

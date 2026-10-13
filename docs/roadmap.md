@@ -34,6 +34,12 @@ This roadmap describes the first useful release. Priorities may change as people
 - [x] Add adapter metadata to run and benchmark manifests.
 - [x] Document adapter packaging and include a minimal example plugin.
 
+## Milestone 5 — Package distribution
+
+- [x] Build and validate wheel and source distributions in CI.
+- [x] Add tag-triggered PyPI publishing with Trusted Publishing and OIDC.
+- [ ] Configure the PyPI Trusted Publisher and publish the first version.
+
 ## Out of scope for the first release
 
 - Automatically merging an agent's changes.
