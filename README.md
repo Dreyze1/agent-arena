@@ -10,7 +10,7 @@ Agent Arena is an open-source harness for running coding agents against the same
 
 ## Project status
 
-Early development. The local runner can launch configured commands in parallel Git worktrees and produce an offline HTML comparison report. Container isolation and benchmark suites are still planned.
+Early development. Agent Arena can run configured commands locally or in optional Docker containers, compare their Git worktrees, and run repeatable benchmark suites. Shared hosted runs and CI artifact publishing are still planned.
 
 ## Why Agent Arena?
 
@@ -21,7 +21,7 @@ Coding agents are easy to compare in a demo and hard to compare on your own code
 - Collect patches, command output, duration, and check results.
 - Review the outcomes together before choosing what to keep.
 
-The first release will focus on local, reproducible runs. GitHub Actions and shared benchmark suites can come later.
+The first release focuses on local, reproducible runs and optional Docker execution. A hosted leaderboard and shared public benchmark corpus can come later.
 
 ## Planned workflow
 
@@ -87,14 +87,15 @@ suite format, result metrics, and artifact layout.
 - [x] Add an offline side-by-side HTML report.
 - [x] Export a selected agent patch as a local branch.
 - [x] Add versioned benchmark suites with checks and aggregate CSV/JSON results.
-- [ ] Add an optional container runner for stronger isolation.
+- [x] Add an optional Docker runner with explicit network and resource limits.
 
 See [the roadmap](docs/roadmap.md) and [the architecture notes](docs/architecture.md).
 See [the export guide](docs/exports.md) to save a selected result as a branch.
+See [the container guide](docs/containers.md) to configure Docker execution.
 
 ## Security model
 
-Git worktrees separate file changes; they do **not** sandbox a process. Until the container runner is implemented, a configured agent command has the permissions of the user who starts it. Use trusted tools and repositories, and review commands before running them.
+Git worktrees separate file changes; they do **not** sandbox a process. Local mode runs commands with the permissions of the user who starts them. Docker mode restricts mounted files, network, capabilities, and resource use, but containers still share the host kernel and are not a complete security boundary. Use trusted images, tools, and repositories.
 
 Agent Arena will not ask users to paste model API keys into its configuration. Provider authentication should stay with the provider's own CLI or credential manager.
 

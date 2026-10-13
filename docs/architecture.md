@@ -14,6 +14,7 @@ Run several coding agents against one task from the same starting commit and mak
 6. **Review surface** — print a terminal summary and generate an offline HTML report with side-by-side patches, checks, and logs.
 7. **Benchmark suites** — execute versioned TOML task collections against the same agents and base commit, preserving per-run results plus aggregate JSON and CSV summaries.
 8. **Patch export** — validate a selected run artifact, apply its patch in a temporary detached worktree, and create a local branch commit without switching the user's checkout.
+9. **Container executor** — run agent and check commands in disposable Docker containers with a writable worktree, isolated per-agent Git metadata, a read-only shallow base snapshot, configurable resource caps, and an explicit network policy.
 
 ## Run artifact shape
 
@@ -38,7 +39,7 @@ Benchmark manifests include a snapshot of suite prompts and SHA-256 digests for 
 
 ## Isolation boundary
 
-Git worktrees prevent agents from editing each other's files. They are not a security boundary: child processes still run as the current user. The initial local runner should say this clearly. A later container runner can offer stronger isolation with an explicit, reviewable mount and network policy.
+Git worktrees prevent agents from editing each other's files. Local execution has no OS-level isolation. Docker execution adds explicit mounts, resource caps, and network policy but shares the host kernel and daemon, so it is not a complete security boundary.
 
 ## Design constraints
 

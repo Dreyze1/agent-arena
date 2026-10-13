@@ -14,14 +14,22 @@ import tempfile
 import time
 import tomllib
 import uuid
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
-class ArenaError(Exception):
-    """An expected user-facing error while preparing or running an arena."""
+from agent_arena.container_runtime import (
+    ContainerGitMetadata,
+    ContainerProfile,
+    build_docker_command,
+    create_container_git_metadata,
+    parse_container_profile,
+    remove_container,
+    resolve_local_image,
+)
+from agent_arena.errors import ArenaError
 
 
 @dataclass
@@ -41,6 +49,7 @@ class AgentOutcome:
 class AgentProfile:
     command: tuple[str, ...]
     inherit_env: tuple[str, ...]
+    container: ContainerProfile | None = None
 
 
 def resolve_repository(path: Path) -> Path:
@@ -134,7 +143,11 @@ def _read_config(config_path: Path) -> tuple[dict[str, AgentProfile], list[list[
         if safe in safe_names:
             raise ArenaError("Agent names must remain unique after filename normalization.")
         safe_names.add(safe)
-        agents[name] = AgentProfile(tuple(command), tuple(inherit_env))
+        raw_container = profile.get("container")
+        container = (
+            parse_container_profile(raw_container, name) if raw_container is not None else None
+        )
+        agents[name] = AgentProfile(tuple(command), tuple(inherit_env), container)
 
     checks = _validate_checks(data.get("checks", []), "top-level checks")
 
@@ -271,6 +284,18 @@ def _secret_values(profile: AgentProfile, environment: dict[str, str]) -> tuple[
     return tuple(values[name.upper()] for name in profile.inherit_env if values.get(name.upper()))
 
 
+def _container_environment_names(
+    profile: AgentProfile,
+    environment: dict[str, str],
+) -> tuple[str, ...]:
+    names = {name for name in environment if name.startswith("ARENA_")}
+    current_keys = {key.upper(): key for key in environment}
+    names.update(
+        current_keys[name.upper()] for name in profile.inherit_env if name.upper() in current_keys
+    )
+    return tuple(sorted(names))
+
+
 def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
     if os.name == "nt":
         try:
@@ -336,8 +361,32 @@ def _run_command(
     stdout_path: Path,
     stderr_path: Path,
     redact_values: tuple[str, ...] = (),
+    container_profile: ContainerProfile | None = None,
+    container_git_metadata: ContainerGitMetadata | None = None,
+    container_environment_names: tuple[str, ...] = (),
+    container_client_environment: dict[str, str] | None = None,
 ) -> tuple[int, bool, float]:
     started = time.perf_counter()
+    container_cleanup: Callable[[], None] | None = None
+    if container_profile is not None:
+        if container_git_metadata is None:
+            raise ArenaError("Container execution is missing its isolated Git metadata.")
+        container_name = "arena-" + uuid.uuid4().hex
+        command = build_docker_command(
+            container_profile,
+            worktree=cwd,
+            git_metadata=container_git_metadata,
+            command=command,
+            environment_names=container_environment_names,
+            container_name=container_name,
+        )
+        if container_client_environment is not None:
+            environment = container_client_environment
+
+        def cleanup() -> None:
+            remove_container(container_name, environment)
+
+        container_cleanup = cleanup
     try:
         stdout_path.parent.mkdir(parents=True, exist_ok=True)
         with (
@@ -368,7 +417,14 @@ def _run_command(
                     timed_out = False
                 except subprocess.TimeoutExpired:
                     _terminate_process_tree(process)
+                    if container_cleanup is not None:
+                        container_cleanup()
                     returncode, timed_out = 124, True
+                except KeyboardInterrupt:
+                    _terminate_process_tree(process)
+                    if container_cleanup is not None:
+                        container_cleanup()
+                    raise
             _write_redacted_log(stdout_raw, stdout_path, redact_values)
             _write_redacted_log(stderr_raw, stderr_path, redact_values)
         return (
@@ -391,14 +447,20 @@ def _run_checks(
     timeout_seconds: int,
     environment: dict[str, str],
     agent_dir: Path,
+    container_profile: ContainerProfile | None,
+    container_git_metadata: ContainerGitMetadata | None,
+    container_environment_names: tuple[str, ...],
+    container_client_environment: dict[str, str] | None,
 ) -> list[dict[str, Any]]:
     outcomes: list[dict[str, Any]] = []
     for index, template in enumerate(checks, start=1):
+        execution_repository = Path("/workspace") if container_profile is not None else repository
+        execution_worktree = Path("/workspace") if container_profile is not None else worktree
         command = _expand_command(
             template,
             task=task,
-            repository=repository,
-            worktree=worktree,
+            repository=execution_repository,
+            worktree=execution_worktree,
             base_sha=base_sha,
         )
         stdout_path = agent_dir / f"check-{index}.stdout.log"
@@ -410,6 +472,10 @@ def _run_checks(
             timeout_seconds=timeout_seconds,
             stdout_path=stdout_path,
             stderr_path=stderr_path,
+            container_profile=container_profile,
+            container_git_metadata=container_git_metadata,
+            container_environment_names=container_environment_names,
+            container_client_environment=container_client_environment,
         )
         outcomes.append(
             {
@@ -437,24 +503,40 @@ def _run_agent(
     run_id: str,
     agent_dir: Path,
     keep_worktrees: bool,
+    container_git_metadata: ContainerGitMetadata | None,
 ) -> AgentOutcome:
+    execution_repository = Path("/workspace") if profile.container is not None else repository
+    execution_worktree = Path("/workspace") if profile.container is not None else worktree
     command = _expand_command(
         list(profile.command),
         task=task,
-        repository=repository,
-        worktree=worktree,
+        repository=execution_repository,
+        worktree=execution_worktree,
         base_sha=base_sha,
     )
     arena_values = {
         "ARENA_TASK": task,
-        "ARENA_REPOSITORY": str(repository),
-        "ARENA_WORKTREE": str(worktree),
+        "ARENA_REPOSITORY": str(execution_repository),
+        "ARENA_WORKTREE": str(execution_worktree),
         "ARENA_BASE_SHA": base_sha,
         "ARENA_RUN_ID": run_id,
         "ARENA_AGENT": name,
     }
     environment = _child_environment(profile.inherit_env, arena_values)
     check_environment = _child_environment((), arena_values)
+    container_environment_names = (
+        _container_environment_names(profile, environment) if profile.container is not None else ()
+    )
+    check_container_environment_names = tuple(
+        name for name in check_environment if name.startswith("ARENA_")
+    )
+    container_client_environment = None
+    check_container_client_environment = None
+    if profile.container is not None:
+        container_client_environment = os.environ.copy()
+        container_client_environment.update(environment)
+        check_container_client_environment = os.environ.copy()
+        check_container_client_environment.update(check_environment)
 
     stdout_path = agent_dir / "stdout.log"
     stderr_path = agent_dir / "stderr.log"
@@ -466,6 +548,10 @@ def _run_agent(
         stdout_path=stdout_path,
         stderr_path=stderr_path,
         redact_values=_secret_values(profile, environment),
+        container_profile=profile.container,
+        container_git_metadata=container_git_metadata,
+        container_environment_names=container_environment_names,
+        container_client_environment=container_client_environment,
     )
 
     check_results = _run_checks(
@@ -477,6 +563,10 @@ def _run_agent(
         timeout_seconds=timeout_seconds,
         environment=check_environment,
         agent_dir=agent_dir,
+        container_profile=profile.container,
+        container_git_metadata=container_git_metadata,
+        container_environment_names=check_container_environment_names,
+        container_client_environment=check_container_client_environment,
     )
 
     _git(worktree, "add", "--intent-to-add", "--all")
@@ -516,6 +606,7 @@ def run_arena(
     base_revision: str | None = None,
     allowed_untracked_paths: tuple[Path, ...] = (),
     expected_config_sha256: str | None = None,
+    expected_container_images: dict[str, str] | None = None,
 ) -> tuple[Path, str, list[AgentOutcome]]:
     """Run each selected agent in its own worktree and save review artifacts."""
     if not task.strip():
@@ -566,8 +657,23 @@ def run_arena(
         names = list(agents)
     if len(names) > 16:
         raise ArenaError("A single run is limited to 16 agents.")
+    execution_profiles: dict[str, AgentProfile] = {}
+    container_image_ids: dict[str, str] = {}
     for name in names:
         _child_environment(agents[name].inherit_env, {})
+        profile = agents[name]
+        if profile.container is not None:
+            image_id = resolve_local_image(profile.container.image)
+            if (
+                expected_container_images is not None
+                and expected_container_images.get(name) != image_id
+            ):
+                raise ArenaError(f"Docker image for agent {name!r} changed during the benchmark.")
+            container_image_ids[name] = image_id
+            profile = replace(profile, container=replace(profile.container, image=image_id))
+        execution_profiles[name] = profile
+    if expected_container_images is not None and container_image_ids != expected_container_images:
+        raise ArenaError("The configured container images changed during the benchmark.")
 
     run_started_at = datetime.now(UTC)
     run_id = run_started_at.strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
@@ -585,12 +691,22 @@ def run_arena(
         raise ArenaError(f"Could not create run storage in {temp_root}: {error}") from error
 
     worktrees: dict[str, Path] = {}
+    container_git_root = temp_root / "container-git" / run_id
+    container_git: dict[str, ContainerGitMetadata] = {}
     try:
         for name in names:
             safe = _safe_name(name)
             worktree = workspace_root / safe
             _git(repository, "worktree", "add", "--detach", str(worktree), base_sha)
             worktrees[name] = worktree
+
+        if container_image_ids:
+            container_git = create_container_git_metadata(
+                repository,
+                base_sha,
+                {name: worktrees[name] for name in container_image_ids},
+                container_git_root,
+            )
 
         def invoke(name: str) -> AgentOutcome:
             safe = _safe_name(name)
@@ -599,7 +715,7 @@ def run_arena(
                 agent_dir.mkdir(parents=True, exist_ok=False)
                 return _run_agent(
                     name=name,
-                    profile=agents[name],
+                    profile=execution_profiles[name],
                     checks=checks,
                     task=task,
                     repository=repository,
@@ -609,6 +725,7 @@ def run_arena(
                     run_id=run_id,
                     agent_dir=agent_dir,
                     keep_worktrees=keep_worktrees,
+                    container_git_metadata=container_git.get(name),
                 )
             except OSError as error:
                 raise ArenaError(
@@ -618,6 +735,7 @@ def run_arena(
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as executor:
             outcomes = list(executor.map(invoke, names))
     finally:
+        shutil.rmtree(container_git_root, ignore_errors=True)
         if not keep_worktrees:
             for worktree in worktrees.values():
                 subprocess.run(
@@ -648,6 +766,7 @@ def run_arena(
         "task": task,
         "timeout_seconds": timeout_seconds,
         "agent_count": len(outcomes),
+        "container_images": container_image_ids,
         "agents": [asdict(outcome) for outcome in outcomes],
     }
     try:

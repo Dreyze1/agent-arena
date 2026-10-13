@@ -24,8 +24,8 @@ This roadmap describes the first useful release. Priorities may change as people
 
 ## Milestone 3 — Safer and shareable runs
 
-- [ ] Add an optional container-backed runner.
-- [ ] Add explicit resource limits and network controls.
+- [x] Add an optional Docker-backed runner.
+- [x] Add explicit CPU, memory, process, capability, and network controls.
 - [ ] Add CI integration that uploads sanitized run artifacts.
 
 ## Out of scope for the first release

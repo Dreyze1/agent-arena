@@ -45,6 +45,16 @@ command = ["codex", "exec", "--full-auto", "{task}"]
 [agents.claude]
 command = ["claude", "-p", "{task}"]
 # inherit_env = ["ANTHROPIC_API_KEY"]
+
+# Optional Docker execution. The image must already exist locally and contain the agent CLI.
+# Network is disabled by default; use "bridge" only when the agent needs internet access.
+# [agents.codex.container]
+# image = "ghcr.io/your-org/agent-arena-codex:latest"
+# network = "none"
+# memory = "4g"
+# cpus = 2.0
+# pids_limit = 256
+# user = "1000:1000"
 """
 
 

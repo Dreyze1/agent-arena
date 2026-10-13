@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_arena.container_runtime import resolve_local_image
 from agent_arena.runner import (
     ArenaError,
     _child_environment,
@@ -286,8 +287,11 @@ def run_benchmark(
         raise ArenaError("A single benchmark is limited to 16 agents.")
     if not agent_names:
         raise ArenaError("Select at least one configured agent.")
+    container_image_ids: dict[str, str] = {}
     for name in agent_names:
         _child_environment(agents[name].inherit_env, {})
+        if agents[name].container is not None:
+            container_image_ids[name] = resolve_local_image(agents[name].container.image)
 
     invocation_count = len(suite.tasks) * suite.repetitions * len(agent_names)
     if invocation_count > _MAX_AGENT_INVOCATIONS:
@@ -319,6 +323,7 @@ def run_benchmark(
         "suite_name": suite.name,
         "suite_sha256": suite.sha256,
         "agent_config_sha256": config_sha256,
+        "container_images": container_image_ids,
         "suite_snapshot": {
             "repetitions": suite.repetitions,
             "checks": suite.checks,
@@ -353,6 +358,7 @@ def run_benchmark(
                     base_revision=base_sha,
                     allowed_untracked_paths=(suite_file,),
                     expected_config_sha256=config_sha256,
+                    expected_container_images=container_image_ids,
                 )
                 manifest["runs"].append(
                     {
