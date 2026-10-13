@@ -10,7 +10,7 @@ Agent Arena is an open-source harness for running coding agents against the same
 
 ## Project status
 
-Early development. The repository is being set up; agent orchestration is the first milestone.
+Early development. The local runner can launch configured commands in parallel Git worktrees; report generation and container isolation are still planned.
 
 ## Why Agent Arena?
 
@@ -37,26 +37,43 @@ Task + repository
 
 ## Quick start
 
-The CLI currently provides a small setup command. The run engine is not available yet.
+Requires Python 3.11+, Git, and the command-line tools for the agents you want to run.
 
 ```bash
-python -m venv .venv
-# Activate the environment, then:
+git clone https://github.com/Dreyze1/agent-arena.git
+cd agent-arena
 python -m pip install -e .
-arena --help
 arena init --path /path/to/your/repository
 ```
 
-arena init creates an .agent-arena.toml starter config. It does not run agents or modify Git history.
+Edit .agent-arena.toml in the target repository to choose the agent commands. Then run:
+
+```bash
+arena run \
+  --repo /path/to/your/repository \
+  --task "Fix the bug described in issue #42" \
+  --agent codex \
+  --agent claude
+```
+
+The target repository must be clean, except for an untracked config file. Runs start from its current HEAD commit. Each agent gets a detached worktree, and all agents run concurrently. Patches and logs are saved under the operating system's temporary directory in an agent-arena folder.
+
+Optional checks can be added to the top level of .agent-arena.toml:
+
+```toml
+checks = [["python", "-m", "pytest", "-q"], ["ruff", "check", "."]]
+```
+
+Check commands run separately in each agent's worktree after the agent command finishes.
 
 ## Roadmap
 
 - [x] Publish the project scaffold and contribution guidelines.
-- [x] Add the initial CLI and configuration starter.
+- [x] Add CLI setup and local parallel runs in Git worktrees.
+- [x] Capture patches, logs, exit codes, elapsed time, and optional check results.
 - [ ] Define a provider adapter contract.
-- [ ] Run configured agents in separate Git worktrees.
-- [ ] Capture patches, logs, exit codes, and elapsed time.
-- [ ] Add configurable checks and a side-by-side result view.
+- [x] Add configurable checks.
+- [ ] Add a side-by-side result view.
 - [ ] Add an optional container runner for stronger isolation.
 
 See [the roadmap](docs/roadmap.md) and [the architecture notes](docs/architecture.md).
@@ -66,6 +83,8 @@ See [the roadmap](docs/roadmap.md) and [the architecture notes](docs/architectur
 Git worktrees separate file changes; they do **not** sandbox a process. Until the container runner is implemented, a configured agent command has the permissions of the user who starts it. Use trusted tools and repositories, and review commands before running them.
 
 Agent Arena will not ask users to paste model API keys into its configuration. Provider authentication should stay with the provider's own CLI or credential manager.
+
+Run artifacts include the task prompt, agent output, and generated patch. They are stored locally under the system temporary directory; review them before sharing.
 
 ## Contributing
 

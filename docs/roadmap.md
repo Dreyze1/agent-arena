@@ -10,11 +10,11 @@ This roadmap describes the first useful release. Priorities may change as people
 
 ## Milestone 1 — Local comparison
 
-- [ ] Load agent profiles and checks from TOML.
-- [ ] Create one Git worktree per selected agent from the same commit.
-- [ ] Run provider commands with a consistent task placeholder.
-- [ ] Capture logs, exit codes, elapsed time, and diffs.
-- [ ] Print a useful comparison summary.
+- [x] Load agent profiles and checks from TOML.
+- [x] Create one Git worktree per selected agent from the same commit.
+- [x] Run provider commands with a consistent task placeholder.
+- [x] Capture logs, exit codes, elapsed time, and diffs.
+- [x] Print a useful comparison summary.
 
 ## Milestone 2 — Better review
 
