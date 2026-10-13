@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   lint:
-    name: Lint
+    name: Quality checks
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -33,3 +33,6 @@ jobs:
 
       - name: Check formatting
         run: ruff format --check .
+
+      - name: Run tests
+        run: python -m pytest -q

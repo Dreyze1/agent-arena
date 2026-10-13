@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_arena.adapters import resolve_agent_adapter
 from agent_arena.container_runtime import resolve_local_image
 from agent_arena.runner import (
     ArenaError,
@@ -302,8 +303,12 @@ def run_benchmark(
     if not agent_names:
         raise ArenaError("Select at least one configured agent.")
     container_image_ids: dict[str, str] = {}
+    adapter_snapshots: dict[str, dict[str, str]] = {}
     for name in agent_names:
         _child_environment(agents[name].inherit_env, {})
+        adapter_snapshots[name] = resolve_agent_adapter(
+            agents[name].adapter_name
+        ).descriptor.as_manifest()
         if agents[name].container is not None:
             container_image_ids[name] = resolve_local_image(agents[name].container.image)
 
@@ -338,6 +343,7 @@ def run_benchmark(
         "suite_sha256": suite.sha256,
         "agent_config_sha256": config_sha256,
         "container_images": container_image_ids,
+        "adapters": adapter_snapshots,
         "suite_snapshot": {
             "repetitions": suite.repetitions,
             "checks": suite.checks,
@@ -373,6 +379,7 @@ def run_benchmark(
                     allowed_untracked_paths=(suite_file,),
                     expected_config_sha256=config_sha256,
                     expected_container_images=container_image_ids,
+                    expected_adapters=adapter_snapshots,
                 )
                 manifest["runs"].append(
                     {

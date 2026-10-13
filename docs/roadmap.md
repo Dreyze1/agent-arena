@@ -28,6 +28,12 @@ This roadmap describes the first useful release. Priorities may change as people
 - [x] Add explicit CPU, memory, process, capability, and network controls.
 - [x] Add CI integration that uploads a minimal aggregate summary.
 
+## Milestone 4 — Extensible provider integrations
+
+- [x] Define a public adapter API with Python entry-point discovery.
+- [x] Add adapter metadata to run and benchmark manifests.
+- [x] Document adapter packaging and include a minimal example plugin.
+
 ## Out of scope for the first release
 
 - Automatically merging an agent's changes.

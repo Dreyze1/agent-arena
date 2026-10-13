@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.11,<1"]
+dev = ["pytest>=8.3,<10", "ruff>=0.11,<1"]
 
 [project.scripts]
 arena = "agent_arena.cli:app"
@@ -53,3 +53,6 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # Typer uses Option/Argument objects as signature metadata by design.
 "src/agent_arena/cli.py" = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

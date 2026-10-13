@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "arena-demo-provider"
+version = "0.1.0"
+description = "Example Agent Arena provider adapter plugin"
+requires-python = ">=3.11"
+dependencies = ["agent-arena>=0.1.0"]
+
+[project.entry-points."agent_arena.adapters"]
+demo-provider = "arena_demo_provider:DemoProviderAdapter"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/arena_demo_provider"]

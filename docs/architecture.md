@@ -8,7 +8,7 @@ Run several coding agents against one task from the same starting commit and mak
 
 1. **Task and run definition** — task text, repository path, base revision, agent profiles, timeout, and checks.
 2. **Workspace manager** — one detached Git worktree per agent, all created from the same base revision.
-3. **Provider adapters** — invoke installed agent CLIs with a consistent task contract and capture exit status and output.
+3. **Provider adapters** — resolve installed `agent_arena.adapters` entry points, build an argv invocation in a restricted-environment worker, and let the runner capture exit status and output.
 4. **Evaluator** — run configured checks against each result and record command, duration, and outcome.
 5. **Run artifacts** — preserve a manifest and patch per agent in the system temporary directory.
 6. **Review surface** — print a terminal summary and generate an offline HTML report with side-by-side patches, checks, and logs.
@@ -45,6 +45,8 @@ Git worktrees prevent agents from editing each other's files. Local execution ha
 ## Design constraints
 
 - Keep provider integrations optional; users should not need one vendor's SDK.
+- Keep the adapter contract small: plugins select argv; Agent Arena owns process execution, checks, containers, artifacts, and timeouts.
+- Discover plugin metadata without importing plugin code, and invoke selected plugins without forwarding profile credentials.
 - Store configuration in readable TOML.
 - Launch commands without a shell and forward only a small default environment allowlist.
 - Require agent profiles to opt in to any additional environment variables by name.

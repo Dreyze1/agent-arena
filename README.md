@@ -65,6 +65,8 @@ The target repository must be clean, except for an untracked config file. Runs s
 
 A run can include up to 16 agents. Use --timeout to set the per-command limit; the maximum is 24 hours. Agent commands receive a minimal environment by default, with opt-in environment variable names available per profile.
 
+Provider integrations can be installed as Python plugins. See the [provider adapter guide](docs/provider-adapters.md) for the public API, plugin registration, and configuration format. Run `arena adapters` to list installed adapters.
+
 Optional checks can be added to the top level of .agent-arena.toml:
 
 ```toml
@@ -82,7 +84,7 @@ suite format, result metrics, and artifact layout.
 - [x] Publish the project scaffold and contribution guidelines.
 - [x] Add CLI setup and local parallel runs in Git worktrees.
 - [x] Capture patches, logs, exit codes, elapsed time, and optional check results.
-- [ ] Define a provider adapter contract.
+- [x] Define a provider adapter plugin contract and entry-point discovery.
 - [x] Add configurable checks.
 - [x] Add an offline side-by-side HTML report.
 - [x] Export a selected agent patch as a local branch.
@@ -94,6 +96,7 @@ See [the roadmap](docs/roadmap.md) and [the architecture notes](docs/architectur
 See [the export guide](docs/exports.md) to save a selected result as a branch.
 See [the container guide](docs/containers.md) to configure Docker execution.
 See [the GitHub Actions guide](docs/github-actions.md) to run benchmarks in CI.
+See [the provider adapter guide](docs/provider-adapters.md) to add provider integrations.
 
 ## Security model
 
@@ -109,7 +112,7 @@ Child processes receive a small set of operating-system environment variables by
 
 Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and use the issue templates for bugs and feature proposals.
 
-Pull requests run Ruff lint and formatting checks on Python 3.11, 3.12, and 3.13. Dependabot checks Python and GitHub Actions dependencies weekly.
+Pull requests run Ruff lint, formatting, and tests on Python 3.11, 3.12, and 3.13. Dependabot checks Python and GitHub Actions dependencies weekly.
 
 ## License
 

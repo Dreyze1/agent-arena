@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from agent_arena import __version__
+from agent_arena.adapters import available_adapter_descriptors
 from agent_arena.benchmark import run_benchmark
 from agent_arena.branch_export import export_agent_branch
 from agent_arena.report import create_report
@@ -46,6 +47,13 @@ command = ["codex", "exec", "--full-auto", "{task}"]
 command = ["claude", "-p", "{task}"]
 # inherit_env = ["ANTHROPIC_API_KEY"]
 
+# Installed provider adapters can replace command templates. Run `arena adapters` to list them.
+# [agents.custom]
+# adapter = "provider-name"
+# inherit_env = ["PROVIDER_API_KEY"]
+# [agents.custom.options]
+# model = "model-name"
+
 # Optional Docker execution. The image must already exist locally and contain the agent CLI.
 # Network is disabled by default; use "bridge" only when the agent needs internet access.
 # [agents.codex.container]
@@ -71,6 +79,24 @@ def main(
     if version:
         console.print(f"Agent Arena {__version__}")
         raise typer.Exit()
+
+
+@app.command("adapters")
+def list_adapters() -> None:
+    """List the built-in command adapter and installed provider plugins."""
+    table = Table(title="Agent Arena adapters")
+    table.add_column("Name", style="bold")
+    table.add_column("Type")
+    table.add_column("Package")
+    table.add_column("Version")
+    for descriptor in available_adapter_descriptors():
+        table.add_row(
+            descriptor.name,
+            "built-in" if descriptor.name == "command" else "plugin",
+            descriptor.distribution,
+            descriptor.version,
+        )
+    console.print(table)
 
 
 @app.command()

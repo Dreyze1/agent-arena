@@ -14,12 +14,18 @@ import tempfile
 import time
 import tomllib
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_arena.adapters import (
+    AdapterContext,
+    ResolvedAgentAdapter,
+    resolve_agent_adapter,
+    validate_adapter_name,
+)
 from agent_arena.container_runtime import (
     ContainerGitMetadata,
     ContainerProfile,
@@ -35,6 +41,9 @@ from agent_arena.errors import ArenaError
 @dataclass
 class AgentOutcome:
     name: str
+    adapter_name: str
+    adapter_distribution: str
+    adapter_version: str
     command: str
     returncode: int | None
     timed_out: bool
@@ -47,7 +56,8 @@ class AgentOutcome:
 
 @dataclass(frozen=True)
 class AgentProfile:
-    command: tuple[str, ...]
+    adapter_name: str
+    adapter_options: Mapping[str, Any]
     inherit_env: tuple[str, ...]
     container: ContainerProfile | None = None
 
@@ -126,13 +136,29 @@ def _read_config(config_path: Path) -> tuple[dict[str, AgentProfile], list[list[
     for name, profile in raw_agents.items():
         if not isinstance(profile, dict):
             raise ArenaError(f"Agent profile {name!r} must be a TOML table.")
-        command = profile.get("command")
-        if (
-            not isinstance(command, list)
-            or not command
-            or not all(isinstance(part, str) and part for part in command)
-        ):
-            raise ArenaError(f"Agent {name!r} must define command as a non-empty string array.")
+        adapter_name = validate_adapter_name(profile.get("adapter", "command"))
+        raw_options = profile.get("options", {})
+        if not isinstance(raw_options, dict):
+            raise ArenaError(f"Agent {name!r} options must be a TOML table.")
+        if adapter_name == "command":
+            command = profile.get("command")
+            if (
+                not isinstance(command, list)
+                or not command
+                or not all(isinstance(part, str) and part for part in command)
+            ):
+                raise ArenaError(f"Agent {name!r} must define command as a non-empty string array.")
+            if raw_options:
+                raise ArenaError(
+                    f"Agent {name!r} must use command = [...] instead of adapter options."
+                )
+            adapter_options: Mapping[str, Any] = {"command": tuple(command)}
+        else:
+            if "command" in profile:
+                raise ArenaError(
+                    f"Agent {name!r} cannot define command when adapter = {adapter_name!r}."
+                )
+            adapter_options = dict(raw_options)
         inherit_env = profile.get("inherit_env", [])
         if not isinstance(inherit_env, list) or not all(
             isinstance(variable, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", variable)
@@ -147,7 +173,7 @@ def _read_config(config_path: Path) -> tuple[dict[str, AgentProfile], list[list[
         container = (
             parse_container_profile(raw_container, name) if raw_container is not None else None
         )
-        agents[name] = AgentProfile(tuple(command), tuple(inherit_env), container)
+        agents[name] = AgentProfile(adapter_name, adapter_options, tuple(inherit_env), container)
 
     checks = _validate_checks(data.get("checks", []), "top-level checks")
 
@@ -494,6 +520,7 @@ def _run_agent(
     *,
     name: str,
     profile: AgentProfile,
+    adapter: ResolvedAgentAdapter,
     checks: list[list[str]],
     task: str,
     repository: Path,
@@ -507,13 +534,18 @@ def _run_agent(
 ) -> AgentOutcome:
     execution_repository = Path("/workspace") if profile.container is not None else repository
     execution_worktree = Path("/workspace") if profile.container is not None else worktree
-    command = _expand_command(
-        list(profile.command),
-        task=task,
-        repository=execution_repository,
-        worktree=execution_worktree,
-        base_sha=base_sha,
+    invocation = adapter.build_invocation(
+        AdapterContext(
+            agent_name=name,
+            task=task,
+            repository=execution_repository,
+            worktree=execution_worktree,
+            base_sha=base_sha,
+            run_id=run_id,
+        ),
+        profile.adapter_options,
     )
+    command = list(invocation.argv)
     arena_values = {
         "ARENA_TASK": task,
         "ARENA_REPOSITORY": str(execution_repository),
@@ -583,6 +615,9 @@ def _run_agent(
 
     return AgentOutcome(
         name=name,
+        adapter_name=adapter.descriptor.name,
+        adapter_distribution=adapter.descriptor.distribution,
+        adapter_version=adapter.descriptor.version,
         command=Path(command[0]).name,
         returncode=returncode,
         timed_out=timed_out,
@@ -607,6 +642,7 @@ def run_arena(
     allowed_untracked_paths: tuple[Path, ...] = (),
     expected_config_sha256: str | None = None,
     expected_container_images: dict[str, str] | None = None,
+    expected_adapters: dict[str, dict[str, str]] | None = None,
 ) -> tuple[Path, str, list[AgentOutcome]]:
     """Run each selected agent in its own worktree and save review artifacts."""
     if not task.strip():
@@ -658,10 +694,18 @@ def run_arena(
     if len(names) > 16:
         raise ArenaError("A single run is limited to 16 agents.")
     execution_profiles: dict[str, AgentProfile] = {}
+    resolved_adapters: dict[str, ResolvedAgentAdapter] = {}
+    adapter_snapshots: dict[str, dict[str, str]] = {}
     container_image_ids: dict[str, str] = {}
     for name in names:
         _child_environment(agents[name].inherit_env, {})
         profile = agents[name]
+        adapter = resolve_agent_adapter(profile.adapter_name)
+        snapshot = adapter.descriptor.as_manifest()
+        if expected_adapters is not None and expected_adapters.get(name) != snapshot:
+            raise ArenaError(f"Agent adapter for {name!r} changed during the benchmark.")
+        adapter_snapshots[name] = snapshot
+        resolved_adapters[name] = adapter
         if profile.container is not None:
             image_id = resolve_local_image(profile.container.image)
             if (
@@ -674,6 +718,8 @@ def run_arena(
         execution_profiles[name] = profile
     if expected_container_images is not None and container_image_ids != expected_container_images:
         raise ArenaError("The configured container images changed during the benchmark.")
+    if expected_adapters is not None and adapter_snapshots != expected_adapters:
+        raise ArenaError("The configured agent adapters changed during the benchmark.")
 
     run_started_at = datetime.now(UTC)
     run_id = run_started_at.strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
@@ -716,6 +762,7 @@ def run_arena(
                 return _run_agent(
                     name=name,
                     profile=execution_profiles[name],
+                    adapter=resolved_adapters[name],
                     checks=checks,
                     task=task,
                     repository=repository,
@@ -766,6 +813,7 @@ def run_arena(
         "task": task,
         "timeout_seconds": timeout_seconds,
         "agent_count": len(outcomes),
+        "adapters": adapter_snapshots,
         "container_images": container_image_ids,
         "agents": [asdict(outcome) for outcome in outcomes],
     }
