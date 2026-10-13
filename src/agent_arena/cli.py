@@ -11,6 +11,7 @@ from rich.table import Table
 
 from agent_arena import __version__
 from agent_arena.benchmark import run_benchmark
+from agent_arena.branch_export import export_agent_branch
 from agent_arena.report import create_report
 from agent_arena.runner import (
     AgentOutcome,
@@ -365,6 +366,56 @@ def benchmark(
         "[yellow]A verified pass requires a successful agent command and all configured checks. "
         "Runs without checks are reported as unverified.[/yellow]"
     )
+
+
+@app.command()
+def export(
+    run_id: str = typer.Argument(..., help="Run ID shown by arena run or arena runs."),
+    agent: str = typer.Option(..., "--agent", "-a", help="Agent whose patch to export."),
+    repo: Path = typer.Option(
+        Path("."),
+        "--repo",
+        "-C",
+        help="Git repository that owns the run.",
+        file_okay=False,
+        dir_okay=True,
+    ),
+    branch: str | None = typer.Option(
+        None,
+        "--branch",
+        "-b",
+        help="Local branch name; defaults to arena/RUN_ID/AGENT.",
+    ),
+) -> None:
+    """Export one saved agent patch as a local branch commit."""
+    try:
+        result = export_agent_branch(
+            repository_path=repo,
+            run_id=run_id,
+            agent_name=agent,
+            branch_name=branch,
+        )
+    except ArenaError as error:
+        console.print(f"[red]Cannot export patch:[/red] {error}")
+        raise typer.Exit(code=2) from error
+
+    if result.timed_out or result.returncode != 0:
+        console.print(
+            "[yellow]The selected agent did not finish successfully; "
+            "its partial patch was exported as requested.[/yellow]"
+        )
+    if result.checks_total:
+        console.print(f"Checks: {result.checks_passed}/{result.checks_total} passed")
+        if result.checks_passed != result.checks_total:
+            console.print("[yellow]Review failed checks before using this branch.[/yellow]")
+    else:
+        console.print("[yellow]No checks were recorded for this result.[/yellow]")
+    console.print(f"Created branch: [cyan]{result.branch_name}[/cyan]")
+    console.print(f"Commit: [cyan]{result.commit_sha}[/cyan]")
+    console.print(f"Based on: [cyan]{result.base_sha[:12]}[/cyan]")
+    console.print("The current checkout was left unchanged. Push the branch when you are ready.")
+    if result.cleanup_warning:
+        console.print(f"[yellow]{result.cleanup_warning}[/yellow]")
 
 
 def _outcome_label(outcome: AgentOutcome) -> str:

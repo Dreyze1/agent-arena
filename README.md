@@ -57,6 +57,7 @@ arena run \
 
 arena runs --repo /path/to/your/repository
 arena report RUN_ID --repo /path/to/your/repository --open
+arena export RUN_ID --repo /path/to/your/repository --agent codex
 arena benchmark --repo /path/to/your/repository --suite benchmarks/suite.toml
 ```
 
@@ -84,10 +85,12 @@ suite format, result metrics, and artifact layout.
 - [ ] Define a provider adapter contract.
 - [x] Add configurable checks.
 - [x] Add an offline side-by-side HTML report.
+- [x] Export a selected agent patch as a local branch.
 - [x] Add versioned benchmark suites with checks and aggregate CSV/JSON results.
 - [ ] Add an optional container runner for stronger isolation.
 
 See [the roadmap](docs/roadmap.md) and [the architecture notes](docs/architecture.md).
+See [the export guide](docs/exports.md) to save a selected result as a branch.
 
 ## Security model
 

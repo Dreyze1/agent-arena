@@ -13,6 +13,7 @@ Run several coding agents against one task from the same starting commit and mak
 5. **Run artifacts** — preserve a manifest and patch per agent in the system temporary directory.
 6. **Review surface** — print a terminal summary and generate an offline HTML report with side-by-side patches, checks, and logs.
 7. **Benchmark suites** — execute versioned TOML task collections against the same agents and base commit, preserving per-run results plus aggregate JSON and CSV summaries.
+8. **Patch export** — validate a selected run artifact, apply its patch in a temporary detached worktree, and create a local branch commit without switching the user's checkout.
 
 ## Run artifact shape
 

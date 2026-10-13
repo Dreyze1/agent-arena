@@ -19,7 +19,7 @@ This roadmap describes the first useful release. Priorities may change as people
 ## Milestone 2 — Better review
 
 - [x] Add a static HTML report for side-by-side patches and check results.
-- [ ] Allow selecting a winning patch and exporting it as a branch.
+- [x] Allow selecting a winning patch and exporting it as a local branch.
 - [x] Add versioned TOML benchmark suites, repetitions, fixed-base runs, and aggregate results.
 
 ## Milestone 3 — Safer and shareable runs
