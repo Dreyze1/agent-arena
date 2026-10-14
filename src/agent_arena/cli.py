@@ -22,6 +22,7 @@ from agent_arena.benchmark import benchmark_artifacts_directory, run_benchmark
 from agent_arena.benchmark_report import create_benchmark_report
 from agent_arena.branch_export import export_agent_branch
 from agent_arena.demo import run_demo
+from agent_arena.doctor import run_doctor
 from agent_arena.errors import ArenaError, BenchmarkCancelled
 from agent_arena.report import create_report
 from agent_arena.runner import (
@@ -142,6 +143,52 @@ def list_adapters() -> None:
             descriptor.version,
         )
     console.print(table)
+
+
+@app.command()
+def doctor(
+    repo: Path = typer.Option(
+        Path("."),
+        "--repo",
+        "-C",
+        help="Git repository to inspect.",
+        file_okay=False,
+        dir_okay=True,
+    ),
+    config: Path = typer.Option(
+        Path(".agent-arena.toml"),
+        "--config",
+        help="Agent Arena TOML configuration.",
+        dir_okay=False,
+    ),
+    agent: list[str] = typer.Option(
+        [],
+        "--agent",
+        "-a",
+        help="Agent profile to inspect; repeat to select more than one. Defaults to all profiles.",
+    ),
+) -> None:
+    """Check local run prerequisites without starting agents or plugins."""
+    report = run_doctor(repo, config, agent)
+    status_styles = {"pass": "green", "warn": "yellow", "fail": "red"}
+    for check in report.checks:
+        line = Text()
+        line.append(f"[{check.status.upper()}] ", style=status_styles[check.status])
+        line.append(check.name, style="bold")
+        line.append(f": {check.detail}")
+        console.print(line)
+        if check.suggestion:
+            console.print(Text(f"  Suggested action: {check.suggestion}", style="dim"))
+    console.print("Command availability is checked without starting agents or plugin code.")
+    console.print("Docker, provider authentication, and network connectivity are not tested.")
+    console.print("Secret values are never displayed.")
+    if not report.ready:
+        console.print("[red]Resolve blocking checks before running agents.[/red]")
+        raise typer.Exit(code=1)
+    if report.warning_count:
+        console.print("[yellow]No blocking prerequisites found; review warnings above.[/yellow]")
+    else:
+        console.print("[green]No blocking prerequisites found.[/green]")
 
 
 @app.command()
@@ -437,7 +484,7 @@ def benchmark_report(
         console.print(f"[red]Cannot create benchmark scorecard:[/red] {error}")
         raise typer.Exit(code=2) from error
 
-    console.print(f"Scorecard: [cyan]{scorecard_path}[/cyan]")
+    console.print(Text(f"Scorecard: {scorecard_path}", no_wrap=True), soft_wrap=True)
     if open_report:
         webbrowser.open(scorecard_path.as_uri())
 
