@@ -78,16 +78,21 @@ change when developers try the project and tell us what blocks them.
   [run 38464071916](https://github.com/DreyzeDev/agent-arena/actions/runs/38464071916).
 - [x] Fix the attempt-4 failures in the working tree: reject symlinked manifests before checking
   their names, pin the Windows report test to its own temporary root, and reject manifests with
-  more than 1,500,000 JSON tokens before parsing. Full tests and lint pass locally; hosted CI has
-  not run against these changes yet.
+  more than 1,500,000 JSON tokens before parsing. Full tests and lint passed locally; hosted CI had
+  not run against these changes at that checkpoint.
 - [x] Retry open Dependabot checks on 2026-10-14 after GitHub assigned runners. PR #1 passed all
   four jobs against base `ea82a4c` with 28 tests per test job; the Python 3.13 current-tree suite
   also passes locally with Rich 15.0.0 (174 passed, 6 skipped). PR #2 and #3 reached pytest but
   failed on the pre-fix benchmark manifest symlink check; PR #3 also hit the old Windows artifact
   path fixture. Their diffs only change artifact action pins in `publish.yml`, which the tag-only
-  publish workflow does not run for pull requests. The fixes remain in the working tree, so hosted
-  CI has not validated the current tree.
-- [ ] Confirm the hosted GitHub CI build and package checks complete successfully.
+  publish workflow does not run for pull requests. Those checks predate the fixes; recheck the PRs
+  before merging them.
+- [x] Confirm the hosted GitHub CI build and package checks complete successfully. Run
+  [38550194844](https://github.com/DreyzeDev/agent-arena/actions/runs/38550194844) on commit
+  `3dc9d5c` passed all nine jobs: wheel/sdist build and clean wheel install, plus Ubuntu and Windows
+  quality jobs on Python 3.11–3.14. Windows jobs also ran `arena demo`.
+- [x] Create the GitHub `pypi` environment referenced by the release workflow (2026-10-14). It
+  currently has no reviewers or deployment restrictions.
 - [ ] Configure the PyPI Trusted Publisher and publish the first version.
 
 ## Milestone 6 — Prove the first-run experience
@@ -111,14 +116,15 @@ change when developers try the project and tell us what blocks them.
   subprocess and color-string heuristics reviewed against the current argv-based calls.
 - [x] Re-ran the full Windows suite after adding the PR artifact round-trip check and aligning CI
   with supported Python classifiers (2026-10-14): Python 3.11, 3.12, 3.13, and 3.14 each pass
-  with 176 passed and 6 skipped. This is local verification; hosted CI still needs to run against
-  the updated branch.
+  with 176 passed and 6 skipped. This was local verification at that checkpoint; the later hosted
+  matrix passed as recorded under Milestone 5.
 - [x] Re-ran the Ubuntu Python 3.14 quality checks in WSL after the same changes: Ruff lint and
-  formatting pass, and the full test suite passes with 182 tests. Hosted CI remains unverified.
-- [x] Latest verification after CLI coverage tests and the runner-level container cleanup fix
-  (2026-10-14): Windows Python 3.11–3.14 each pass 185 tests with 6 skipped; Ubuntu Python 3.14
-  passes all 191 tests. Total coverage is 82% (CLI: 85%, container runtime: 94%, scorecard: 86%).
-  Ruff lint, formatting, and `actionlint 1.7.12` pass. GitHub Actions has not run against this tree.
+  formatting pass, and the full test suite passes with 182 tests. Hosted verification was still
+  pending at that checkpoint; see the later run recorded under Milestone 5.
+- [x] Latest local verification after CLI coverage tests and the runner-level container cleanup fix
+  (2026-10-14): this host passes 185 tests with 6 skipped; Ruff lint, formatting, and
+  `git diff --check` pass. Hosted Ubuntu and Windows verification across Python 3.11–3.14, including
+  the package checks and Windows demo, passed in run [38550194844](https://github.com/DreyzeDev/agent-arena/actions/runs/38550194844).
 - [ ] Make a real-provider first install and two-agent benchmark work from a clean environment
   without help.
 - [ ] Ask five independent developers to run a benchmark using the

@@ -80,16 +80,17 @@ direct competitors already demonstrate local runs without provider credentials. 
 hypothesis—run existing CLI agents against a developer's own Git repository and checks, then inspect
 offline evidence—has not yet been validated as meaningfully distinct or valuable enough for repeat
 use. A possible wedge is a lower-friction Python CLI that works on native Windows as well as Linux;
-the project wheel, demo, and `init` command passed a clean Windows install check on 2026-10-13. CI is
-now configured for Windows and will run the test suite plus `arena demo` there, but hosted validation
-has not completed, so cross-platform support is not yet established.
+the project wheel, demo, and `init` command passed a clean Windows install check on 2026-10-13. The
+hosted Linux and Windows matrix later passed on Python 3.11–3.14, including `arena demo` on Windows;
+this verifies the tested project paths, not provider CLI behavior or user demand.
 
 **Recommendation:** Do not add a hosted leaderboard or build a larger dashboard now. Keep the
 five-developer onboarding test as the next product gate. Include native Windows developers and ask
 what they currently use, what they would switch for, and whether Python/native-Windows support
-changes that decision. If the answer is yes, complete Windows CI validation and improve
-supported-provider setup; if not, revisit the product direction before adding features. A distinctive
-name may help search, but renaming alone will not resolve the product overlap. The exact PyPI name
+changes that decision. Use the hosted matrix as a verified prerequisite, then improve supported-provider
+setup only where observed sessions show friction; if developers do not value this workflow, revisit
+the product direction before adding features. A distinctive name may help search, but renaming alone
+will not resolve the product overlap. The exact PyPI name
 was available at the 2026-10-13 check, while a similarly named package and several GitHub projects
 can still confuse discovery.
 
@@ -102,8 +103,8 @@ was previously blocked by an account billing lock. After transferring the reposi
 `DreyzeDev`, [the `main` CI run](https://github.com/DreyzeDev/agent-arena/actions/runs/38464071916)
 (commit `e3535f6`, attempt 4) started all seven jobs. Lint and formatting passed; tests failed on
 benchmark scorecard cases, so the package job stopped before building distributions. Local fixes for
-those cases now pass the full test suite; hosted CI must rerun against the updated commit before the
-workflow can validate the package.
+those cases later passed locally. This describes the earlier failure; the hosted follow-up is recorded
+below.
 The three open pull requests are Dependabot updates, not reports from users. There is still no
 external usage or demand signal.
 
@@ -128,8 +129,16 @@ version-independent limits of 256 nested JSON objects/arrays and 1,500,000 JSON 
 parsing. At that checkpoint, scorecard tests passed on Python 3.11–3.14, covering excessive width
 and depth, the exact depth limit, a large generated manifest, and brackets and escapes inside
 strings; the full suite had 118 passed and 6 skipped on each Windows version. The later container
-metadata fix and latest cross-platform test results are recorded in the [roadmap](roadmap.md).
-These working-tree changes remain uncommitted, so GitHub Actions has not validated them yet.
+metadata fix and later cross-platform results are recorded in the [roadmap](roadmap.md). At the time
+of that checkpoint, these changes were still uncommitted.
+
+### Hosted CI follow-up — 2026-10-14
+
+The earlier CI failures are resolved. The `main` run on commit `3dc9d5c` passed all nine jobs:
+wheel and source distribution checks, clean wheel installation, and Ubuntu/Windows quality checks
+on Python 3.11–3.14. The Windows jobs also completed `arena demo`. See
+[run 38550194844](https://github.com/DreyzeDev/agent-arena/actions/runs/38550194844). This closes
+the hosted CI blocker; it does not establish PyPI installation or external adoption.
 
 Treat distribution and user validation as the work to unblock next. Do not interpret a successful
 local run or this small feature set as proof of adoption.
@@ -208,11 +217,12 @@ their own repository and understanding the result without help. Ask them directl
 telemetry to the CLI to measure this. At the time of this brief, there is no evidence that this has
 happened.
 
-Before calling the project adopted, remove the current external setup blockers: configure PyPI
-Trusted Publishing, get the hosted CI matrix passing, and publish the first version. The repository's
-[release guide](releasing.md) documents the PyPI setup. The main push run linked above started jobs
-after the repository transfer, then failed in tests before the package build. Current local fixes
-and subsequent Dependabot rerun results are tracked in the [roadmap](roadmap.md).
+Before calling the project adopted, configure PyPI Trusted Publishing and publish the first version;
+the hosted CI matrix now passes as recorded above. The repository's [release guide](releasing.md)
+documents the PyPI setup; the required GitHub `pypi` environment now exists, but the Trusted
+Publisher is not yet configured. Independent first-run sessions remain uncompleted, and the open
+pull requests are Dependabot updates rather than user reports. Current blockers and verification
+live in the [roadmap](roadmap.md).
 
 ## Research notes
 

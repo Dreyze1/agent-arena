@@ -166,6 +166,7 @@ See [the GitHub Actions guide](docs/github-actions.md) to run benchmarks in CI.
 See [the provider adapter guide](docs/provider-adapters.md) to add provider integrations.
 See [the environment doctor guide](docs/doctor.md) for local setup checks and their limits.
 See [the package release guide](docs/releasing.md) for PyPI Trusted Publishing setup and release steps.
+See the [changelog](CHANGELOG.md) for the planned first release contents.
 
 ## Security model
 

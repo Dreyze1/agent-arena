@@ -17,9 +17,9 @@ publishing settings. Use these exact values:
 | Workflow filename | `publish.yml` |
 | GitHub environment | `pypi` |
 
-In the GitHub repository, create the `pypi` environment under **Settings → Environments**. Add
-required reviewers if releases should wait for a human approval. The environment name must match the
-Trusted Publisher setting exactly.
+The GitHub repository already has a `pypi` environment (**Settings → Environments**).
+Its name must match the Trusted Publisher setting exactly. It currently has no required reviewers;
+add them if releases should wait for human approval.
 
 ## Publish a release
 
