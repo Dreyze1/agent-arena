@@ -119,7 +119,7 @@ h2, h3, h4, p { margin-top: 0; }
 .metrics div:last-child { border: 0; }
 .metrics strong, .metrics span { display: block; }
 .metrics strong { font-size: 18px; }
-.metrics span { color: var(--muted); font-size: 11px; }
+.metrics span { color: var(--muted); font-size: 12px; }
 .report-section { padding: 18px 20px 0; }
 .section-head {
   display: flex;
@@ -129,8 +129,16 @@ h2, h3, h4, p { margin-top: 0; }
   margin-bottom: 10px;
 }
 .section-head h3 { margin: 0; font-size: 14px; }
-.file-link, .log-actions a { color: var(--blue); text-decoration: none; font-size: 12px; }
-.file-link:hover, .log-actions a:hover { text-decoration: underline; }
+.file-link, .log-actions a, .checks a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 2px;
+  color: var(--blue);
+  text-decoration: underline;
+  text-underline-offset: .15em;
+  font-size: 13px;
+}
 pre {
   margin: 0;
   white-space: pre;
@@ -152,14 +160,13 @@ pre span { display: block; min-height: 1.6em; }
 .checks { list-style: none; padding: 0; margin: 0; }
 .checks li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   padding: 9px 0;
   border-top: 1px solid #202b40;
 }
-.check-result { margin-left: auto; color: var(--muted); font-size: 12px; }
-.checks a { color: var(--blue); text-decoration: none; font-size: 11px; }
-.checks a:hover { text-decoration: underline; }
+.check-result { margin-left: auto; color: var(--muted); font-size: 13px; }
 .check-dot { width: 8px; height: 8px; border-radius: 50%; }
 .dot-ok { background: var(--green); }
 .dot-bad { background: var(--red); }
@@ -168,12 +175,13 @@ pre span { display: block; min-height: 1.6em; }
 .logs h4 {
   margin: 16px 0 7px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: .1em;
 }
 .log-actions { display: flex; gap: 18px; margin-top: 12px; }
 footer { margin-top: 28px; color: var(--muted); font-size: 12px; }
+:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
 @media (max-width: 600px) {
   main { padding: 26px 14px 44px; }
   .topline { align-items: flex-start; flex-direction: column; }
@@ -289,7 +297,7 @@ def _render_checks(checks: Any, run_dir: Path, agent_name: str) -> str:
         stderr_link = _artifact_link(run_dir, agent_name, f"check-{index}.stderr.log", "stderr")
         rows.append(
             "<li>"
-            f'<span class="check-dot {"dot-ok" if ok else "dot-bad"}"></span>'
+            f'<span class="check-dot {"dot-ok" if ok else "dot-bad"}" aria-hidden="true"></span>'
             f"<strong>{_escape(check.get('command', 'check'))}</strong>"
             f'<span class="check-result">{_escape(status)} · {_escape(elapsed)}s</span>'
             f"{stdout_link}{stderr_link}"
