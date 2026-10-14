@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +39,24 @@ class ContainerGitMetadata:
     git_dir: Path
     base_objects: Path
     git_link_file: Path
+    root_identity: tuple[int, int] | None = None
+
+
+def _remove_owned_directory(root: Path, identity: tuple[int, int] | None) -> None:
+    """Remove a directory only while its path still names the directory we created."""
+    if identity is None:
+        return
+    try:
+        current = root.lstat()
+    except OSError:
+        return
+    if stat.S_ISDIR(current.st_mode) and (current.st_dev, current.st_ino) == identity:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def cleanup_container_git_metadata(root: Path, identity: tuple[int, int] | None) -> None:
+    """Remove container metadata only when the path still names our owned directory."""
+    _remove_owned_directory(root, identity)
 
 
 def parse_container_profile(value: Any, agent_name: str) -> ContainerProfile:
@@ -154,8 +173,11 @@ def create_container_git_metadata(
 ) -> dict[str, ContainerGitMetadata]:
     """Create shallow, per-agent Git dirs sharing only the run's base snapshot."""
     base_repository = root / "base.git"
+    root_identity: tuple[int, int] | None = None
     try:
         root.mkdir(parents=True, exist_ok=False)
+        root_stat = root.lstat()
+        root_identity = (root_stat.st_dev, root_stat.st_ino)
         _git_command("init", "--bare", str(base_repository))
         _git_command(
             f"--git-dir={base_repository}",
@@ -176,7 +198,8 @@ def create_container_git_metadata(
             git_dir.parent.mkdir(parents=True, exist_ok=True)
             _git_command("init", "--bare", str(git_dir))
             alternate_path = git_dir / "objects" / "info" / "alternates"
-            alternate_path.write_text("/arena-base-objects\n", encoding="ascii")
+            host_object_path = str(base_repository / "objects").replace("\\", "/")
+            alternate_path.write_bytes(host_object_path.encode("utf-8") + b"\n")
             if shallow_content:
                 (git_dir / "shallow").write_bytes(shallow_content)
             prefix = f"--git-dir={git_dir}"
@@ -188,20 +211,22 @@ def create_container_git_metadata(
             _git_command(prefix, "update-ref", "refs/heads/agent-arena-base", base_sha)
             _git_command(prefix, "symbolic-ref", "HEAD", "refs/heads/agent-arena-base")
             _git_command(prefix, "read-tree", base_sha)
+            alternate_path.write_bytes(b"/arena-base-objects\n")
 
             git_link_file = git_dir.parent / f"{git_dir.name}.git-link"
-            git_link_file.write_text("gitdir: /arena-git\n", encoding="ascii")
+            git_link_file.write_bytes(b"gitdir: /arena-git\n")
             metadata[agent_name] = ContainerGitMetadata(
                 git_dir=git_dir,
                 base_objects=base_repository / "objects",
                 git_link_file=git_link_file,
+                root_identity=root_identity,
             )
         return metadata
     except (OSError, UnicodeError) as error:
-        shutil.rmtree(root, ignore_errors=True)
+        _remove_owned_directory(root, root_identity)
         raise ArenaError(f"Could not prepare isolated container Git metadata: {error}") from error
     except ArenaError:
-        shutil.rmtree(root, ignore_errors=True)
+        _remove_owned_directory(root, root_identity)
         raise
 
 

@@ -30,6 +30,7 @@ from agent_arena.container_runtime import (
     ContainerGitMetadata,
     ContainerProfile,
     build_docker_command,
+    cleanup_container_git_metadata,
     create_container_git_metadata,
     parse_container_profile,
     remove_container,
@@ -37,6 +38,8 @@ from agent_arena.container_runtime import (
 )
 from agent_arena.errors import ArenaError
 from agent_arena.git_utils import git_subprocess_environment
+
+_MAX_AGENTS_PER_RUN = 16
 
 
 @dataclass
@@ -698,8 +701,8 @@ def run_arena(
         names = list(dict.fromkeys(selected_agents))
     else:
         names = list(agents)
-    if len(names) > 16:
-        raise ArenaError("A single run is limited to 16 agents.")
+    if len(names) > _MAX_AGENTS_PER_RUN:
+        raise ArenaError(f"A single run is limited to {_MAX_AGENTS_PER_RUN} agents.")
     execution_profiles: dict[str, AgentProfile] = {}
     resolved_adapters: dict[str, ResolvedAgentAdapter] = {}
     adapter_snapshots: dict[str, dict[str, str]] = {}
@@ -746,6 +749,7 @@ def run_arena(
     worktrees: dict[str, Path] = {}
     container_git_root = temp_root / "container-git" / run_id
     container_git: dict[str, ContainerGitMetadata] = {}
+    container_git_root_identity: tuple[int, int] | None = None
     try:
         for name in names:
             safe = _safe_name(name)
@@ -760,6 +764,8 @@ def run_arena(
                 {name: worktrees[name] for name in container_image_ids},
                 container_git_root,
             )
+            if container_git:
+                container_git_root_identity = next(iter(container_git.values())).root_identity
 
         def invoke(name: str) -> AgentOutcome:
             safe = _safe_name(name)
@@ -789,7 +795,7 @@ def run_arena(
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as executor:
             outcomes = list(executor.map(invoke, names))
     finally:
-        shutil.rmtree(container_git_root, ignore_errors=True)
+        cleanup_container_git_metadata(container_git_root, container_git_root_identity)
         if not keep_worktrees:
             for worktree in worktrees.values():
                 subprocess.run(
