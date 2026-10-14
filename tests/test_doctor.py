@@ -543,7 +543,7 @@ def test_doctor_allows_local_symlinked_executable_paths(
     tmp_path: Path,
 ) -> None:
     repository = _make_repository(tmp_path / "repo")
-    executable_link = tmp_path / "agent-python"
+    executable_link = tmp_path / ("agent-python.exe" if os.name == "nt" else "agent-python")
     try:
         executable_link.symlink_to(sys.executable)
     except OSError:
