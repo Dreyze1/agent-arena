@@ -1,0 +1,78 @@
+name: First-run feedback
+description: Share what worked or blocked you during an initial Agent Arena session.
+title: "[First run]: "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        GitHub issues are public. Do not include private repository details, source code, task
+        prompts, agent output, patches, logs, credentials, or provider account details.
+  - type: checkboxes
+    id: public-details
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have removed private information and understand this issue is public.
+          required: true
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: install-path
+    attributes:
+      label: How did you try Agent Arena?
+      options:
+        - pipx from GitHub
+        - Source checkout
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: What was the furthest step you reached?
+      options:
+        - Completed a verified two-agent scorecard
+        - Completed arena demo only
+        - Got blocked before a scorecard
+        - Have not tried it yet
+    validations:
+      required: true
+  - type: dropdown
+    id: scorecard-clarity
+    attributes:
+      label: Was it clear which results passed the repository checks?
+      options:
+        - Yes
+        - Partly
+        - No
+        - I did not reach a scorecard
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: What worked well or slowed you down?
+      description: Share only details that are safe to make public. Do not paste prompts, patches, logs, or repository information.
+      placeholder: The step that took the most effort was...
+    validations:
+      required: false
+  - type: dropdown
+    id: repeat-use
+    attributes:
+      label: Would you use this on another task?
+      options:
+        - Yes
+        - Maybe
+        - No
+        - Too early to tell
+    validations:
+      required: true

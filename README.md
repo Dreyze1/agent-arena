@@ -13,9 +13,17 @@ still send context to its provider; Agent Arena does not control that provider's
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-early%20development-orange.svg)](#project-status)
 
+Example output from the offline demo: one mock agent passes the repository checks, while the
+other fails a check.
+
+![Offline scorecard with a verified pass and a check failure](docs/assets/demo-scorecard.png)
+
 ## Project status
 
 Early development. Agent Arena can run configured commands locally or in optional Docker containers, compare their Git worktrees, run repeatable benchmark suites, and check local run prerequisites with `arena doctor`. Package release automation is in place; one-time PyPI Trusted Publishing setup and a first version tag are still required before installing from PyPI.
+
+Trying it? [Share first-run feedback](https://github.com/DreyzeDev/agent-arena/issues/new?template=first-run-feedback.yml).
+GitHub issues are public; do not include prompts, code, patches, logs, or credentials.
 
 ## Why Agent Arena?
 
@@ -45,6 +53,19 @@ Task + repository
 
 Requires Python 3.11+ and Git. Provider CLIs are needed only when you run those providers; the
 built-in demo uses local mock agents.
+
+If you have [pipx](https://pipx.pypa.io/latest/how-to/install-pipx.html) installed, try the current
+GitHub version without setting up a local checkout:
+
+```bash
+pipx run --spec git+https://github.com/DreyzeDev/agent-arena.git arena demo --open
+```
+
+This fetches the project and dependencies, then runs the demo in a pipx-managed environment. It
+uses the latest `main` branch, not a versioned release. If pipx selects Python below 3.11, pass
+`--python 3.11` before `--spec` (or choose another installed Python 3.11+ version).
+
+To inspect or modify the source, clone the repository:
 
 ```bash
 git clone https://github.com/DreyzeDev/agent-arena.git
