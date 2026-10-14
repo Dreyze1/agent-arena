@@ -269,11 +269,93 @@ def test_create_benchmark_report_rejects_deeply_nested_json(tmp_path: Path) -> N
     from agent_arena.benchmark_report import create_benchmark_report
 
     manifest_path = _save_manifest(tmp_path, _manifest())
-    nesting = 2_000
-    manifest_path.write_bytes(b"[" * nesting + b"0" + b"]" * nesting)
+    nesting = 300
+    document = json.dumps(_manifest())
+    nested_object = '{"ignored":' + '{"nested":' * nesting + "0" + "}" * nesting + "}"
+    manifest_path.write_text(document[:-1] + "," + nested_object[1:], encoding="utf-8")
 
     with pytest.raises(ArenaError, match="(?i)nest|depth"):
         create_benchmark_report(manifest_path)
+
+
+def test_create_benchmark_report_rejects_excessive_json_width(tmp_path: Path) -> None:
+    from agent_arena.benchmark_report import _MAX_JSON_TOKENS, create_benchmark_report
+
+    manifest_path = _save_manifest(tmp_path, _manifest())
+    document = json.dumps(_manifest())
+    wide_array = "0," * (_MAX_JSON_TOKENS - 1) + "0"
+    manifest_path.write_text(document[:-1] + ',"ignored":[' + wide_array + "]}", encoding="utf-8")
+
+    with pytest.raises(ArenaError, match="too many JSON values"):
+        create_benchmark_report(manifest_path)
+
+
+def test_create_benchmark_report_accepts_large_generated_manifest(tmp_path: Path) -> None:
+    from agent_arena.benchmark_report import create_benchmark_report
+
+    check_results = [
+        {
+            "command": "pytest",
+            "returncode": 0,
+            "timed_out": False,
+            "duration_seconds": 0.25,
+            "stdout_file": f"check-{index}.stdout.log",
+            "stderr_file": f"check-{index}.stderr.log",
+        }
+        for index in range(1, 121)
+    ]
+    tasks = [{"id": f"task-{index:02d}", "prompt": "Run the checks."} for index in range(64)]
+    runs = [
+        {
+            "task_id": task["id"],
+            "repetition": repetition,
+            "agents": [_outcome("codex", checks=check_results)],
+        }
+        for task in tasks
+        for repetition in (1, 2)
+    ]
+    data = _manifest(
+        tasks=tasks,
+        agent_names=["codex"],
+        runs=runs,
+    )
+    data["suite_snapshot"]["repetitions"] = 2
+    data["suite_snapshot"]["checks"] = [["pytest"] for _ in range(120)]
+    manifest_path = _save_manifest(tmp_path, data)
+
+    report_path = create_benchmark_report(manifest_path)
+
+    assert report_path.is_file()
+
+
+def test_create_benchmark_report_accepts_json_at_maximum_nesting_depth(
+    tmp_path: Path,
+) -> None:
+    from agent_arena.benchmark_report import create_benchmark_report
+
+    data = _manifest()
+    nested_value: Any = []
+    # The root object plus 255 nested lists exercises exactly 256 levels.
+    for _ in range(254):
+        nested_value = [nested_value]
+    data["ignored"] = nested_value
+    manifest_path = _save_manifest(tmp_path, data)
+
+    report_path = create_benchmark_report(manifest_path)
+
+    assert report_path.is_file()
+
+
+def test_create_benchmark_report_ignores_brackets_inside_json_strings(tmp_path: Path) -> None:
+    from agent_arena.benchmark_report import create_benchmark_report
+
+    data = _manifest()
+    data["ignored"] = '[{]} "quoted" \\ slash' * 300
+    manifest_path = _save_manifest(tmp_path, data)
+
+    report_path = create_benchmark_report(manifest_path)
+
+    assert report_path.is_file()
 
 
 def test_create_benchmark_report_rejects_oversized_manifest(tmp_path: Path) -> None:
@@ -379,6 +461,7 @@ def test_benchmark_report_command_renders_valid_id_and_opens_report(
 ) -> None:
     repository = tmp_path / "repo"
     repository.mkdir()
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path))
     artifacts = tmp_path / "benchmark-history"
     manifest_path = artifacts / _BENCHMARK_ID / "benchmark.json"
     manifest_path.parent.mkdir(parents=True)

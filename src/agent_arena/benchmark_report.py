@@ -16,6 +16,8 @@ from agent_arena.benchmark import _aggregate_results
 from agent_arena.errors import ArenaError
 
 _MAX_MANIFEST_BYTES = 16_777_216
+_MAX_JSON_NESTING_DEPTH = 256
+_MAX_JSON_TOKENS = 1_500_000
 _BENCHMARK_ID = re.compile(r"\d{8}T\d{6}Z-[0-9a-f]{8}\Z")
 _TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 _VALID_STATUSES = {"running", "complete", "failed", "cancelled"}
@@ -64,12 +66,63 @@ def _escape(value: Any) -> str:
     return html.escape(str(value), quote=True)
 
 
+def _check_json_structure_limits(document: str) -> None:
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    in_primitive = False
+    token_count = 0
+
+    def count_token() -> None:
+        nonlocal token_count
+        token_count += 1
+        if token_count > _MAX_JSON_TOKENS:
+            raise ArenaError(
+                f"Benchmark manifest contains too many JSON values (maximum {_MAX_JSON_TOKENS:,})."
+            )
+
+    for character in document:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+
+        if character == '"':
+            count_token()
+            in_string = True
+            in_primitive = False
+        elif character in "[{":
+            count_token()
+            stack.append(character)
+            if len(stack) > _MAX_JSON_NESTING_DEPTH:
+                raise ArenaError(
+                    "Benchmark manifest is too deeply nested "
+                    f"(maximum depth {_MAX_JSON_NESTING_DEPTH})."
+                )
+            in_primitive = False
+        elif character == "]" and stack and stack[-1] == "[":
+            stack.pop()
+            in_primitive = False
+        elif character == "}" and stack and stack[-1] == "{":
+            stack.pop()
+            in_primitive = False
+        elif character in ",:" or character.isspace():
+            in_primitive = False
+        elif not in_primitive:
+            count_token()
+            in_primitive = True
+
+
 def _load_manifest(manifest_path: Path) -> dict[str, Any]:
     manifest_path = manifest_path.expanduser()
-    if manifest_path.name != "benchmark.json":
-        raise ArenaError("Benchmark report input must be a benchmark.json manifest.")
     if manifest_path.is_symlink():
         raise ArenaError(f"Refusing to read a symlinked benchmark manifest: {manifest_path}")
+    if manifest_path.name != "benchmark.json":
+        raise ArenaError("Benchmark report input must be a benchmark.json manifest.")
     if manifest_path.parent.is_symlink() or not manifest_path.parent.is_dir():
         raise ArenaError(
             f"Benchmark manifest directory does not exist or is a symlink: {manifest_path.parent}"
@@ -86,9 +139,12 @@ def _load_manifest(manifest_path: Path) -> dict[str, Any]:
     if len(raw_manifest) > _MAX_MANIFEST_BYTES:
         raise ArenaError(f"Benchmark manifest exceeds the {_MAX_MANIFEST_BYTES:,}-byte limit.")
     try:
-        manifest = json.loads(raw_manifest.decode("utf-8"))
+        document = raw_manifest.decode("utf-8")
     except UnicodeDecodeError as error:
         raise ArenaError("Benchmark manifest is not valid UTF-8.") from error
+    _check_json_structure_limits(document)
+    try:
+        manifest = json.loads(document)
     except json.JSONDecodeError as error:
         raise ArenaError(f"Benchmark manifest is not valid JSON: {error}") from error
     except RecursionError as error:
