@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -143,3 +144,239 @@ def test_report_commands_reject_linked_artifact_roots(
 
     assert result.exit_code == 2
     assert "symlink" in result.stdout.lower() or "junction" in result.stdout.lower()
+
+
+def test_adapters_command_lists_builtin_and_plugin_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_arena.adapters import AdapterDescriptor
+
+    monkeypatch.setattr(
+        cli,
+        "available_adapter_descriptors",
+        lambda: (
+            AdapterDescriptor("command", "agent-arena", "0.1.0", ""),
+            AdapterDescriptor("provider", "arena-provider", "1.2.3", "module:Adapter"),
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["adapters"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "command" in result.stdout
+    assert "built-in" in result.stdout
+    assert "provider" in result.stdout
+    assert "arena-provider" in result.stdout
+    assert "1.2.3" in result.stdout
+
+
+def test_run_command_reports_results_and_kept_worktrees(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "runs" / "20261014T000000Z-12345678"
+    base_sha = "a" * 40
+    outcome = SimpleNamespace(
+        name="mock",
+        timed_out=False,
+        returncode=0,
+        changed_files=2,
+        duration_seconds=1.25,
+        checks=[{"returncode": 0, "timed_out": False}, {"returncode": 1, "timed_out": False}],
+        workspace=str(tmp_path / "worktree"),
+    )
+    calls: list[dict[str, object]] = []
+
+    def run_arena(**options: object):
+        calls.append(options)
+        return run_dir, base_sha, [outcome]
+
+    monkeypatch.setattr(cli, "run_arena", run_arena)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "run",
+            "--task",
+            "Fix the parser",
+            "--repo",
+            str(tmp_path),
+            "--agent",
+            "mock",
+            "--timeout",
+            "60",
+            "--keep-worktrees",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "finished" in result.stdout
+    assert "1/2 passed" in result.stdout
+    assert "Worktrees were kept" in result.stdout
+    assert "Base commit:" in result.stdout
+    assert calls[0]["selected_agents"] == ["mock"]
+    assert calls[0]["timeout_seconds"] == 60
+    assert calls[0]["keep_worktrees"] is True
+
+
+def test_run_command_reports_arena_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_run(**_options: object):
+        raise cli.ArenaError("the repository is dirty")
+
+    monkeypatch.setattr(cli, "run_arena", fail_run)
+
+    result = CliRunner().invoke(app, ["run", "--task", "Fix it", "--repo", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert "Cannot run arena" in result.stdout
+    assert "repository is dirty" in result.stdout
+
+
+def test_runs_command_lists_valid_manifests_and_skips_invalid_ones(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    runs_dir = tmp_path / "run-history"
+    valid_id = "20261014T000000Z-12345678"
+    valid_run = runs_dir / valid_id
+    valid_run.mkdir(parents=True)
+    (valid_run / "run.json").write_text(
+        json.dumps(
+            {
+                "created_at": "2026-10-14T09:00:00+00:00",
+                "base_sha": "b" * 40,
+                "agents": [{"name": "mock"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    invalid_run = runs_dir / "invalid"
+    invalid_run.mkdir()
+    (invalid_run / "run.json").write_text("not json", encoding="utf-8")
+    monkeypatch.setattr(cli, "resolve_repository", lambda _path: repository)
+    monkeypatch.setattr(cli, "run_artifacts_directory", lambda _repo: runs_dir)
+
+    result = CliRunner().invoke(app, ["runs", "--repo", str(repository)])
+
+    assert result.exit_code == 0, result.stdout
+    assert valid_id in result.stdout
+    assert "2026-10-14 09:00:00" in result.stdout
+    assert "Open a report with" in result.stdout
+    assert "invalid" not in result.stdout
+
+
+def test_report_command_generates_and_opens_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    run_id = "20261014T000000Z-12345678"
+    runs_dir = tmp_path / "agent-arena" / "repo-key" / "runs"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    report_path = tmp_path / "report.html"
+    opened: list[str] = []
+    monkeypatch.setattr(cli, "resolve_repository", lambda _path: repository)
+    monkeypatch.setattr(cli, "run_artifacts_directory", lambda _repo: runs_dir)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(cli, "create_report", lambda _run_dir: report_path)
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
+
+    result = CliRunner().invoke(
+        app,
+        ["report", run_id, "--repo", str(repository), "--open"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Report:" in result.stdout
+    assert opened == [report_path.as_uri()]
+
+
+def test_demo_command_renders_scores_and_opens_the_scorecard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scorecard = tmp_path / "scorecard.html"
+    demo_result = SimpleNamespace(
+        summary=[
+            {
+                "agent": "mock-pass",
+                "verified_pass_rate": 1.0,
+                "verified_passes": 1,
+                "verified_attempts": 1,
+                "agent_successes": 1,
+                "attempts": 1,
+                "check_failure_attempts": 0,
+            },
+            {
+                "agent": "mock-unchecked",
+                "verified_pass_rate": None,
+                "verified_passes": 0,
+                "verified_attempts": 0,
+                "agent_successes": 1,
+                "attempts": 1,
+                "check_failure_attempts": 0,
+            },
+        ],
+        workspace=tmp_path / "workspace",
+        repository=tmp_path / "repository",
+        benchmark_id="20261014T000000Z-12345678",
+        scorecard_path=scorecard,
+        run_report_paths=[tmp_path / "run-report.html"],
+    )
+    opened: list[str] = []
+    monkeypatch.setattr(cli, "run_demo", lambda: demo_result)
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
+
+    result = CliRunner().invoke(app, ["demo", "--open"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "mock-pass" in result.stdout
+    assert "mock-unchecked" in result.stdout
+    assert "not checked" in result.stdout
+    assert "Benchmark ID:" in result.stdout
+    assert "Run report:" in result.stdout
+    assert opened == [scorecard.as_uri()]
+
+
+def test_export_command_warns_when_exporting_an_unverified_partial_patch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    export_result = SimpleNamespace(
+        timed_out=True,
+        returncode=124,
+        checks_total=2,
+        checks_passed=1,
+        branch_name="arena/example/mock",
+        commit_sha="c" * 40,
+        base_sha="d" * 40,
+        cleanup_warning="Temporary worktree cleanup needs attention.",
+    )
+    calls: list[dict[str, object]] = []
+
+    def export_agent_branch(**options: object):
+        calls.append(options)
+        return export_result
+
+    monkeypatch.setattr(cli, "export_agent_branch", export_agent_branch)
+
+    result = CliRunner().invoke(
+        app,
+        ["export", "20261014T000000Z-12345678", "--agent", "mock", "--repo", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "did not finish successfully" in result.stdout
+    assert "Checks: 1/2 passed" in result.stdout
+    assert "Review failed checks" in result.stdout
+    assert "Created branch: arena/example/mock" in result.stdout
+    assert "cleanup needs attention" in result.stdout
+    assert calls[0]["agent_name"] == "mock"
+    assert calls[0]["branch_name"] is None
