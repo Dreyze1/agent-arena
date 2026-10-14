@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out source
@@ -69,6 +69,9 @@ jobs:
 
       - name: Validate distributions
         run: python -m twine check dist/*
+
+      - name: Check source archive for local data
+        run: python scripts/check_sdist.py dist
 
       - name: Install wheel in a clean virtual environment
         run: |

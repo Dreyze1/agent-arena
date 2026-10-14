@@ -12,7 +12,7 @@ publishing settings. Use these exact values:
 
 | Setting | Value |
 | --- | --- |
-| Owner | `Dreyze1` |
+| Owner | `DreyzeDev` |
 | Repository | `agent-arena` |
 | Workflow filename | `publish.yml` |
 | GitHub environment | `pypi` |
@@ -49,4 +49,8 @@ From a clean checkout with the development dependencies installed:
 python -m pip install build twine
 python -m build --sdist --wheel
 python -m twine check dist/*
+python scripts/check_sdist.py dist
 ```
+
+The source archive check rejects local work directories, virtual environments, and common credential
+files before a distribution is uploaded.

@@ -1,6 +1,7 @@
 name: Publish to PyPI
 
 on:
+  pull_request:
   push:
     tags:
       - "v*"
@@ -24,6 +25,7 @@ jobs:
           python-version: "3.11"
 
       - name: Check release tag
+        if: github.event_name == 'push'
         run: python scripts/check_release_version.py "$GITHUB_REF_NAME"
 
       - name: Install build and test tools
@@ -43,6 +45,9 @@ jobs:
       - name: Validate distributions
         run: python -m twine check dist/*
 
+      - name: Check source archive for local data
+        run: python scripts/check_sdist.py dist
+
       - name: Install wheel in a clean virtual environment
         run: |
           python -m venv "$RUNNER_TEMP/agent-arena-venv"
@@ -58,8 +63,27 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  verify-artifact-roundtrip:
+    name: Verify PR package artifacts
+    if: github.event_name == 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Verify wheel and source distribution were downloaded
+        shell: bash
+        run: |
+          test "$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
+          test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+
   publish:
     name: Publish package
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-24.04
     environment:

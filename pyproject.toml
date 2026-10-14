@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-arena"
 version = "0.1.0"
-description = "Run coding agents in local or Docker worktrees and compare their results."
+description = "Compare coding agents against your repository's own checks."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -21,6 +21,8 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Software Development",
 ]
 dependencies = [
@@ -35,12 +37,15 @@ dev = ["pytest>=8.3,<10", "ruff>=0.11,<1"]
 arena = "agent_arena.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/Dreyze1/agent-arena"
-Repository = "https://github.com/Dreyze1/agent-arena"
-Issues = "https://github.com/Dreyze1/agent-arena/issues"
+Homepage = "https://github.com/DreyzeDev/agent-arena"
+Repository = "https://github.com/DreyzeDev/agent-arena"
+Issues = "https://github.com/DreyzeDev/agent-arena/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_arena"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/work"]
 
 [tool.ruff]
 line-length = 100
