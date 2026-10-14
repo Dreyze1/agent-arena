@@ -1,8 +1,13 @@
 # Agent Arena
 
-**One task. Multiple coding agents. Side-by-side results.**
+**Compare coding agents against your repository's own checks.**
 
-Agent Arena is an open-source harness for running coding agents against the same task in separate Git worktrees, then reviewing their patches and checks in one place.
+Agent Arena runs the same task from the same Git commit in separate worktrees, executes your
+repository's checks for each patch, and creates offline reports so you can review the evidence
+before choosing what to keep.
+
+Local runs keep prompts, patches, logs, and reports on your machine. The configured agent CLI may
+still send context to its provider; Agent Arena does not control that provider's behavior.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -10,16 +15,17 @@ Agent Arena is an open-source harness for running coding agents against the same
 
 ## Project status
 
-Early development. Agent Arena can run configured commands locally or in optional Docker containers, compare their Git worktrees, and run repeatable benchmark suites. Package release automation is in place; one-time PyPI Trusted Publishing setup and a first version tag are still required before installing from PyPI.
+Early development. Agent Arena can run configured commands locally or in optional Docker containers, compare their Git worktrees, run repeatable benchmark suites, and check local run prerequisites with `arena doctor`. Package release automation is in place; one-time PyPI Trusted Publishing setup and a first version tag are still required before installing from PyPI.
 
 ## Why Agent Arena?
 
-Coding agents are easy to compare in a demo and hard to compare on your own codebase. Agent Arena aims to make the comparison repeatable:
+Fixed benchmark scores do not show whether a patch passes the checks in your own repository. Agent
+Arena makes that comparison repeatable:
 
-- Give each agent the same task and the same starting commit.
-- Keep each run in its own Git worktree.
-- Collect patches, command output, duration, and check results.
-- Review the outcomes together before choosing what to keep.
+- Give each agent the same task and starting commit in its own Git worktree.
+- Run the same configured checks against each patch.
+- Distinguish verified passes from unverified output, failed checks, and incomplete attempts.
+- Review the patches and check evidence locally before choosing what to keep.
 
 The first release focuses on local, reproducible runs and optional Docker execution. A hosted leaderboard and shared public benchmark corpus can come later.
 
@@ -41,7 +47,7 @@ Requires Python 3.11+ and Git. Provider CLIs are needed only when you run those 
 built-in demo uses local mock agents.
 
 ```bash
-git clone https://github.com/Dreyze1/agent-arena.git
+git clone https://github.com/DreyzeDev/agent-arena.git
 cd agent-arena
 ```
 
@@ -73,12 +79,34 @@ Initialize the repository you want to work on:
 arena init --path /path/to/your/repository
 ```
 
+On Windows PowerShell, use a Windows path and run each command on one line:
+
+```powershell
+$repo = "C:\path\to\your\repository"
+arena init --path $repo
+arena doctor --repo $repo --agent codex --agent claude
+arena run --repo $repo --task "Fix the bug described in issue #42" --agent codex --agent claude
+arena runs --repo $repo
+```
+
+Before running `arena doctor` or `arena run`, the selected repository needs at least one Git commit
+to use as the shared base. Create an initial commit first when starting from an empty repository.
+
+After `arena run` prints a run ID, inspect or export a result with PowerShell like this:
+
+```powershell
+arena report RUN_ID --repo $repo --open
+arena export RUN_ID --repo $repo --agent codex
+```
+
 The starter config includes `codex` and `claude` command profiles. Install and sign in to the
 provider CLIs you plan to use, then check that their commands in `.agent-arena.toml` match your
-setup. Agent Arena starts those commands; each provider CLI manages its own authentication.
-Then run:
+setup. Agent Arena starts those commands; each provider CLI manages its own authentication. Check
+local prerequisites before starting a run:
 
 ```bash
+arena doctor --repo /path/to/your/repository --agent codex --agent claude
+
 arena run \
   --repo /path/to/your/repository \
   --task "Fix the bug described in issue #42" \
@@ -136,6 +164,7 @@ See [the export guide](docs/exports.md) to save a selected result as a branch.
 See [the container guide](docs/containers.md) to configure Docker execution.
 See [the GitHub Actions guide](docs/github-actions.md) to run benchmarks in CI.
 See [the provider adapter guide](docs/provider-adapters.md) to add provider integrations.
+See [the environment doctor guide](docs/doctor.md) for local setup checks and their limits.
 See [the package release guide](docs/releasing.md) for PyPI Trusted Publishing setup and release steps.
 
 ## Security model
@@ -151,10 +180,11 @@ Child processes receive a small set of operating-system environment variables by
 ## Contributing
 
 Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and use the issue templates for bugs and feature proposals.
+Interested in testing the first-run workflow? See the [user validation protocol](docs/user-validation.md).
 
 Pull requests are configured to run Ruff lint, formatting, and tests on Ubuntu 24.04 and Windows
-with Python 3.11, 3.12, and 3.13. The Windows job also runs `arena demo`. Dependabot checks Python
-and GitHub Actions dependencies weekly.
+with Python 3.11, 3.12, 3.13, and 3.14. The Windows job also runs `arena demo`. Dependabot checks
+Python and GitHub Actions dependencies weekly.
 
 ## License
 

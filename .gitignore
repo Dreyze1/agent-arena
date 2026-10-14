@@ -17,6 +17,11 @@ work/
 .agent-arena/
 .agent-arena.toml
 
+# Local secrets
+.env
+.env.*
+!.env.example
+
 # Editors and operating systems
 .idea/
 .vscode/

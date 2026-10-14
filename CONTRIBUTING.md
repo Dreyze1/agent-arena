@@ -17,8 +17,18 @@ python -m venv .venv
 # Activate the environment, then:
 python -m pip install -e ".[dev]"
 arena --help
-ruff check .
 ```
+
+Before opening a pull request, run the same source checks used by CI:
+
+```bash
+ruff check .
+ruff format --check .
+python -m pytest -q
+```
+
+On Windows, also run `arena demo` to verify the offline example. It uses mock agents and does not
+need provider credentials or network access.
 
 ## Pull requests
 

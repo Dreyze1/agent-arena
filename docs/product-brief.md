@@ -20,13 +20,17 @@ multiple agents by hand makes patches, logs, and test outcomes tedious to compar
 ## Product promise
 
 Run the same task from the same commit in separate worktrees, verify each result with the repository's
-own checks, then inspect the patches locally. Keep prompts and source code on the user's machine.
+own checks, then inspect the patches locally. The default local workflow keeps run artifacts on the
+user's machine and Agent Arena does not upload them automatically. Configured agent commands may
+send prompts or source context to external services; their network behavior and data handling are
+controlled by those commands and providers. The optional GitHub Actions workflow can upload an
+aggregate summary when the user configures and runs it.
 
 The existing CLI provides local parallel runs, configurable checks, repeatable TOML suites, Docker
-execution, per-run patch reports, CSV/JSON aggregates, and an offline benchmark scorecard.
-`arena demo` also gives new users a no-credential first result using local mock agents. The next gap
-is learning whether developers can install and use real provider CLIs without help, then improving
-that workflow from their feedback.
+execution, per-run patch reports, CSV/JSON aggregates, an offline benchmark scorecard, and the
+read-only `arena doctor` setup check. `arena demo` also gives new users a no-credential first result
+using local mock agents. The next gap is learning whether developers can install and use real
+provider CLIs without help, then improving that workflow from their feedback.
 
 ## Why this direction
 
@@ -89,6 +93,51 @@ name may help search, but renaming alone will not resolve the product overlap. T
 was available at the 2026-10-13 check, while a similarly named package and several GitHub projects
 can still confuse discovery.
 
+## Adoption and release check — 2026-10-14
+
+The [public repository](https://github.com/DreyzeDev/agent-arena) has 0 stars and 0 forks, and there
+are [no published releases](https://github.com/DreyzeDev/agent-arena/releases). The [PyPI project
+endpoint still returns 404](https://pypi.org/pypi/agent-arena/json) on 2026-10-14. GitHub Actions
+was previously blocked by an account billing lock. After transferring the repository to
+`DreyzeDev`, [the `main` CI run](https://github.com/DreyzeDev/agent-arena/actions/runs/38464071916)
+(commit `e3535f6`, attempt 4) started all seven jobs. Lint and formatting passed; tests failed on
+benchmark scorecard cases, so the package job stopped before building distributions. Local fixes for
+those cases now pass the full test suite; hosted CI must rerun against the updated commit before the
+workflow can validate the package.
+The three open pull requests are Dependabot updates, not reports from users. There is still no
+external usage or demand signal.
+
+At the earlier packaging checkpoint, the full Windows test suite passed on Python 3.11, 3.12, 3.13,
+and 3.14 (118 passed, 6 skipped on each). PyPI classifiers now match those verified versions. A
+fresh 0.1.0 wheel and sdist built from
+the current source snapshot both pass `twine check`
+and install in clean virtual environments. The wheel passes `arena --version`, `arena adapters`,
+`arena doctor --help`, and `arena demo`; the sdist passes `arena --version` and `arena doctor
+--help`. The sdist contains 58 entries (95,072 bytes) and passes the local archive-path checker.
+The Ruff checks and `arena demo` also pass in clean Windows environments on Python 3.12 and 3.13;
+the demo reports one verified pass and one expected check failure.
+An earlier inspection caught the source archive including local `work/` data; that archive was
+discarded without being published. The package build now excludes that directory, and the checker
+rejects absolute or traversal paths, Windows drive paths, nested local environments, and common
+credential filenames without regard to case. This validates local artifacts, not hosted CI or an
+installation from PyPI.
+
+The working tree now fixes the attempt-4 CI failures: symlinked input validation order and the
+Windows scorecard test's temporary artifact root. The benchmark manifest loader also enforces
+version-independent limits of 256 nested JSON objects/arrays and 1,500,000 JSON tokens before
+parsing. At that checkpoint, scorecard tests passed on Python 3.11–3.14, covering excessive width
+and depth, the exact depth limit, a large generated manifest, and brackets and escapes inside
+strings; the full suite had 118 passed and 6 skipped on each Windows version. The later container
+metadata fix and latest cross-platform test results are recorded in the [roadmap](roadmap.md).
+These working-tree changes remain uncommitted, so GitHub Actions has not validated them yet.
+
+Treat distribution and user validation as the work to unblock next. Do not interpret a successful
+local run or this small feature set as proof of adoption.
+
+Use the [first-run validation protocol](user-validation.md) after a package release is available.
+Source-checkout sessions can identify usability problems earlier, but do not count as evidence that
+the published installation path works.
+
 ## Ten-star experience
 
 From a clean install, a developer selects two local agent CLIs, runs a small suite against a private
@@ -111,6 +160,30 @@ attempts. It leaves prompts, repository paths, check commands, patches, and logs
 This closes the gap between benchmark JSON/CSV and the project's visual per-run review. The next
 step is to validate the first-run experience with independent developers before adding hosted
 features.
+
+## Delivered slice: local readiness doctor
+
+`arena doctor` checks Git worktree support, the selected repository's base commit and cleanliness,
+TOML configuration, selected command availability, adapter metadata, explicitly requested
+environment-variable names, and configured verification tools. It never launches provider commands
+or plugin code, tests authentication, contacts a network service, or displays environment-variable
+values. Docker profiles are reported with a warning because checking an image or daemon could reach
+a remote Docker context. A warning also explains that results without configured checks are
+unverified. This lowers setup friction but does not prove that users can authenticate a provider or
+finish a benchmark unaided; external onboarding validation remains the next product gate.
+
+## Local first-run journey audit — 2026-10-14
+
+In fresh Windows virtual environments on Python 3.11 and 3.14, installing the current checkout
+produced a working `arena` command. The journey passed `arena --version`, `arena adapters`,
+`arena demo`, `arena init`, `arena doctor`, and a two-agent `arena benchmark` against a temporary
+Git repository. The benchmark used local Python command adapters and a file-existence check; both
+agents received a verified pass and the CLI generated the offline scorecard.
+
+This confirms the packaged CLI and mock-provider workflow on those two interpreter versions. It
+does not verify installation from PyPI, real provider CLI setup or authentication, the full hosted
+CI matrix, or independent developers completing the journey without help. Keep the external
+five-developer validation as an open product gate.
 
 ## Delivered slice: offline first-run demo
 
@@ -136,9 +209,10 @@ telemetry to the CLI to measure this. At the time of this brief, there is no evi
 happened.
 
 Before calling the project adopted, remove the current external setup blockers: configure PyPI
-Trusted Publishing, make hosted CI available, and publish the first version. The repository's
-[release guide](releasing.md) documents the PyPI setup; its most recent CI run could not start jobs
-because the GitHub account was locked over billing.
+Trusted Publishing, get the hosted CI matrix passing, and publish the first version. The repository's
+[release guide](releasing.md) documents the PyPI setup. The main push run linked above started jobs
+after the repository transfer, then failed in tests before the package build. Current local fixes
+and subsequent Dependabot rerun results are tracked in the [roadmap](roadmap.md).
 
 ## Research notes
 
